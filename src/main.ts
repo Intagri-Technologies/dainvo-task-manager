@@ -24,6 +24,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   private isSnapshotInFlight = false;
   private isOperationPollInFlight = false;
   private hasPendingSnapshotRetry = false;
+  private hasQueuedSnapshot = false;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -123,6 +124,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
 
   async pushSnapshotNow(): Promise<void> {
     if (this.isSnapshotInFlight) {
+      this.hasQueuedSnapshot = true;
       return;
     }
 
@@ -142,6 +144,11 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       throw error;
     } finally {
       this.isSnapshotInFlight = false;
+
+      if (this.hasQueuedSnapshot) {
+        this.hasQueuedSnapshot = false;
+        this.scheduleSnapshot();
+      }
     }
   }
 
@@ -180,6 +187,10 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       }
       this.settings.lastStatus = `Polled ${operations.length} operation(s)`;
       await this.saveSettings();
+    } catch (error) {
+      this.settings.lastStatus = formatError(error);
+      await this.saveSettings();
+      throw error;
     } finally {
       this.isOperationPollInFlight = false;
     }

@@ -5,7 +5,12 @@ import type { PendingOperation } from './types';
 
 const TASK_LINE_RE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
 const BLOCK_ID_RE = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/;
-const RECURRENCE_RE = /🔁\s+[^📅✅➕⏳🛫🔺⏫🔼🔽⏬#^]+/;
+const RECURRENCE_RE = /🔁\s+[^📅✅➕⏳🛫❌🔺⏫🔼🔽⏬#^]+/gu;
+const UNSUPPORTED_TASKS_EMOJI_METADATA_RE =
+  /(?:➕|⏳|🛫|❌)\s*\d{4}-\d{2}-\d{2}/gu;
+const LOW_PRIORITY_METADATA_RE = /[🔽⏬]/gu;
+const UNSUPPORTED_DATAVIEW_FIELD_RE =
+  /\[(?!(?:due|completion|completed|done)::)[A-Za-z][A-Za-z0-9_-]*::\s*[^\]]+\]/gi;
 
 export class DainvoWriteBackConflict extends Error {
   constructor(message: string) {
@@ -77,7 +82,10 @@ export function patchMarkdownTaskLine(input: {
 
   const body = match[4] ?? '';
   const blockId = extractBlockId(body);
-  const recurrence = body.match(RECURRENCE_RE)?.[0]?.trim();
+  const preservedMetadata = extractPreservedMetadata(
+    body,
+    input.operation.task.priority
+  );
   const checkbox =
     input.operation.operationType === 'complete'
       ? 'x'
@@ -91,8 +99,8 @@ export function patchMarkdownTaskLine(input: {
     input.operation.task.dueAt
       ? `📅 ${input.operation.task.dueAt.slice(0, 10)}`
       : null,
-    checkbox === 'x' ? `✅ ${new Date().toISOString().slice(0, 10)}` : null,
-    recurrence,
+    completionMetadata(checkbox, input.operation),
+    ...preservedMetadata,
     ...input.operation.task.labels.map((label) => `#${sanitizeTag(label)}`)
   ].filter((value): value is string => Boolean(value));
   const suffix = blockId ? ` ^${blockId}` : '';
@@ -161,6 +169,37 @@ function priorityToEmoji(priority: number): string | null {
   return null;
 }
 
+function completionMetadata(
+  checkbox: string,
+  operation: PendingOperation
+): string | null {
+  if (checkbox !== 'x') {
+    return null;
+  }
+
+  const completedAt =
+    operation.operationType === 'complete'
+      ? null
+      : operation.source.completedAt;
+
+  return `✅ ${(completedAt ?? new Date().toISOString()).slice(0, 10)}`;
+}
+
+function extractPreservedMetadata(body: string, nextPriority: number): string[] {
+  return [
+    ...new Set(
+      [
+        ...body.matchAll(RECURRENCE_RE),
+        ...body.matchAll(UNSUPPORTED_TASKS_EMOJI_METADATA_RE),
+        ...(nextPriority >= 4 ? body.matchAll(LOW_PRIORITY_METADATA_RE) : []),
+        ...body.matchAll(UNSUPPORTED_DATAVIEW_FIELD_RE)
+      ]
+        .map((match) => match[0].trim())
+        .filter(Boolean)
+    )
+  ];
+}
+
 function sanitizeTag(label: string): string {
   return label.trim().replace(/^#/, '').replace(/[^A-Za-z0-9/_-]+/g, '-');
 }
@@ -168,4 +207,3 @@ function sanitizeTag(label: string): string {
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
-

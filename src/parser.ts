@@ -15,7 +15,11 @@ const BLOCK_ID_RE = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/;
 const DUE_DATE_RE = /(?:📅|\[due::)\s*(\d{4}-\d{2}-\d{2})\]?/;
 const COMPLETION_DATE_RE = /✅\s*(\d{4}-\d{2}-\d{2})/;
 const TAG_RE = /(?:^|\s)#([A-Za-z0-9/_-]+)/g;
-const RECURRENCE_RE = /🔁\s+[^📅✅➕⏳🛫🔺⏫🔼🔽⏬#^]+/;
+const RECURRENCE_RE = /🔁\s+[^📅✅➕⏳🛫❌🔺⏫🔼🔽⏬#^]+/gu;
+const UNSUPPORTED_TASKS_EMOJI_METADATA_RE =
+  /(?:➕|⏳|🛫|❌)\s*\d{4}-\d{2}-\d{2}|[🔽⏬]/gu;
+const UNSUPPORTED_DATAVIEW_FIELD_RE =
+  /\[(?!(?:due|completion|completed|done)::)[A-Za-z][A-Za-z0-9_-]*::\s*[^\]]+\]/gi;
 
 export function parseMarkdownTasks(
   input: ParseMarkdownTasksInput
@@ -99,7 +103,9 @@ function normalizeTaskTitle(body: string): string {
     .replace(DUE_DATE_RE, '')
     .replace(COMPLETION_DATE_RE, '')
     .replace(RECURRENCE_RE, '')
-    .replace(/[🔺⏫🔼🔽⏬]/g, '')
+    .replace(UNSUPPORTED_TASKS_EMOJI_METADATA_RE, '')
+    .replace(UNSUPPORTED_DATAVIEW_FIELD_RE, '')
+    .replace(/[🔺⏫🔼🔽⏬]/gu, '')
     .replace(TAG_RE, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -152,4 +158,3 @@ function normalizeNotePath(notePath: string): string {
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
-

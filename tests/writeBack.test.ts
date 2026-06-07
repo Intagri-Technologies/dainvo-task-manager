@@ -25,6 +25,56 @@ describe('applyOperationToContent', () => {
     );
   });
 
+  it('preserves recurrence and unsupported Obsidian Tasks metadata', () => {
+    const content =
+      '- [ ] Old title 🔁 every week ⏳ 2026-06-09 🛫 2026-06-08 ➕ 2026-06-01 [context:: launch] 🔽 #old ^meta\n';
+    const operation = makeOperation(content, {
+      operationType: 'update',
+      task: {
+        title: 'New title',
+        priority: 3,
+        labels: ['next'],
+        dueAt: '2026-06-15T00:00:00.000Z'
+      }
+    });
+
+    expect(applyOperationToContent(content, operation)).toBe(
+      '- [ ] New title 🔼 📅 2026-06-15 🔁 every week ⏳ 2026-06-09 🛫 2026-06-08 ➕ 2026-06-01 [context:: launch] #next ^meta\n'
+    );
+  });
+
+  it('keeps low-priority metadata when Dainvo is not writing a higher priority', () => {
+    const content =
+      '- [ ] Low task ⏳ 2026-06-09 [context:: launch] 🔽 #old ^low\n';
+    const operation = makeOperation(content, {
+      operationType: 'update',
+      task: {
+        title: 'Renamed low task',
+        priority: 4,
+        labels: ['next']
+      }
+    });
+
+    expect(applyOperationToContent(content, operation)).toBe(
+      '- [ ] Renamed low task ⏳ 2026-06-09 🔽 [context:: launch] #next ^low\n'
+    );
+  });
+
+  it('preserves existing completion dates during non-completion edits', () => {
+    const content = '- [x] Done title ✅ 2026-06-01 ^done';
+    const operation = makeOperation(content, {
+      operationType: 'update',
+      task: {
+        title: 'Retitled done task',
+        status: 'completed'
+      }
+    });
+
+    expect(applyOperationToContent(content, operation)).toBe(
+      '- [x] Retitled done task ✅ 2026-06-01 ^done'
+    );
+  });
+
   it('completes, reopens, and deletes existing task lines', () => {
     const content = [
       '- [ ] Open task ^open',

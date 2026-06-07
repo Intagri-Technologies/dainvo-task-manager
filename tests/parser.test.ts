@@ -68,4 +68,21 @@ describe('parseMarkdownTasks', () => {
       parserFormat: 'markdown'
     });
   });
+
+  it('does not include unsupported Tasks metadata in imported titles', () => {
+    const tasks = parseMarkdownTasks({
+      vaultId: 'vault-c',
+      vaultName: 'Research',
+      notePath: 'Research.md',
+      content:
+        '- [ ] Review plan ⏳ 2026-06-09 🛫 2026-06-08 ➕ 2026-06-01 [context:: launch] 🔽 #next ^meta'
+    });
+
+    expect(tasks[0]).toMatchObject({
+      title: 'Review plan',
+      priority: 4,
+      labels: ['next'],
+      blockId: 'meta'
+    });
+  });
 });
