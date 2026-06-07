@@ -1,0 +1,11 @@
+{
+  "id": "dainvo-task-manager",
+  "name": "Dainvo Task Manager",
+  "version": "1.0.0",
+  "minAppVersion": "1.5.0",
+  "description": "Sync Obsidian vault tasks with Dainvo using a local desktop bridge.",
+  "author": "Intagri Technologies",
+  "authorUrl": "https://dainvo.com",
+  "isDesktopOnly": true
+}
+
