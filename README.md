@@ -1,10 +1,10 @@
 # Dainvo Task Manager
 
-Dainvo Task Manager is a desktop-only Obsidian plugin for syncing Markdown tasks from one or more vaults into Dainvo.
+Dainvo Task Manager is an Obsidian plugin for syncing Markdown tasks from one or more vaults into Dainvo.
 
 ## Features
 
-- Indexes standard Markdown checkbox tasks and Obsidian Tasks-compatible emoji metadata.
+- Indexes standard Markdown checkbox tasks and Obsidian Tasks compatible emoji metadata.
 - Pushes debounced vault snapshots to Dainvo's localhost bridge while Obsidian is open.
 - Exports vault path and Daily Notes settings so Dainvo can keep syncing while Obsidian is closed.
 - Applies Dainvo write-back operations with `Vault.process()` when Obsidian is open.
@@ -17,7 +17,7 @@ Dainvo Task Manager is a desktop-only Obsidian plugin for syncing Markdown tasks
 - Dainvo desktop app installed on the same computer.
 - A paired Dainvo account for each vault you want to sync.
 
-This plugin is desktop-only because Dainvo uses local vault paths and a localhost bridge.
+This plugin is local only because Dainvo uses local vault paths and a localhost bridge.
 
 ## Pairing
 
