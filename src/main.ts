@@ -1,17 +1,26 @@
-import { Notice, Plugin, TFile } from 'obsidian';
+import { Notice, Plugin, TFile } from "obsidian";
+import {
+  appHasDailyNotesPluginLoaded,
+  getDailyNoteSettings,
+} from "obsidian-daily-notes-interface";
 
-import { DainvoBridgeClient } from './bridgeClient';
-import { parseMarkdownTasks } from './parser';
-import { DainvoTaskManagerSettingTab } from './settings';
+import { DainvoBridgeClient } from "./bridgeClient";
+import {
+  emptyDailyNoteSettings,
+  parseDailyNotesConfig,
+  parsePeriodicNotesDailyConfig,
+  resolveDailyNoteSettingsFromSources,
+  type DetectedDailyNoteSettings,
+} from "./dailyNotesSettings";
+import { DainvoTaskManagerSettingTab } from "./settings";
+import { buildSnapshotPayload } from "./snapshot";
 import {
   DEFAULT_SETTINGS,
+  type DailyNoteSettings,
   type DainvoPluginSettings,
-  type ObsidianSnapshotPayload
-} from './types';
-import {
-  applyOperationToVault,
-  DainvoWriteBackConflict
-} from './writeBack';
+} from "./types";
+import { resolveVaultIdentity } from "./vaultIdentity";
+import { applyOperationToVault, DainvoWriteBackConflict } from "./writeBack";
 
 const SNAPSHOT_DEBOUNCE_MS = 1_500;
 const SNAPSHOT_RETRY_MS = 30_000;
@@ -29,25 +38,26 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
     await this.ensureVaultIdentity();
+    await this.resolveDailyNoteSettings().catch(() => undefined);
 
     this.addSettingTab(new DainvoTaskManagerSettingTab(this));
     this.addCommand({
-      id: 'sync-vault-tasks-now',
-      name: 'Sync vault tasks now',
+      id: "sync-vault-tasks-now",
+      name: "Sync vault tasks now",
       callback: () => {
         void this.pushSnapshotNow().catch((error: unknown) => {
           new Notice(formatError(error));
         });
-      }
+      },
     });
     this.addCommand({
-      id: 'poll-dainvo-write-back',
-      name: 'Poll Dainvo write-back',
+      id: "poll-dainvo-write-back",
+      name: "Poll Dainvo write-back",
       callback: () => {
         void this.pollPendingOperations().catch((error: unknown) => {
           new Notice(formatError(error));
         });
-      }
+      },
     });
 
     this.app.workspace.onLayoutReady(() => {
@@ -57,14 +67,14 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     this.registerInterval(
       window.setInterval(() => {
         void this.pollPendingOperations().catch(() => undefined);
-      }, OPERATION_POLL_MS)
+      }, OPERATION_POLL_MS),
     );
     this.registerInterval(
       window.setInterval(() => {
         if (this.hasPendingSnapshotRetry) {
           this.scheduleSnapshot();
         }
-      }, SNAPSHOT_RETRY_MS)
+      }, SNAPSHOT_RETRY_MS),
     );
   }
 
@@ -78,7 +88,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   async loadSettings(): Promise<void> {
     this.settings = {
       ...DEFAULT_SETTINGS,
-      ...((await this.loadData()) as Partial<DainvoPluginSettings> | null)
+      ...((await this.loadData()) as Partial<DainvoPluginSettings> | null),
     };
   }
 
@@ -93,13 +103,14 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       vaultId: this.settings.vaultId,
       vaultName: this.settings.vaultName,
       vaultPath: this.settings.vaultPath,
-      pluginVersion: this.manifest.version
+      pluginVersion: this.manifest.version,
+      dailyNoteSettings: await this.resolveDailyNoteSettings(),
     });
 
     this.settings.accountId = result.accountId;
     this.settings.bearerToken = result.token;
     this.settings.bridgeBaseUrl = result.baseUrl;
-    this.settings.lastStatus = 'Paired';
+    this.settings.lastStatus = "Paired";
     await this.saveSettings();
     await this.pushSnapshotNow();
   }
@@ -131,10 +142,14 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     this.isSnapshotInFlight = true;
     try {
       await this.ensureVaultIdentity();
-      const payload = await this.buildSnapshotPayload();
+      const payload = await buildSnapshotPayload({
+        vault: this.app.vault,
+        settings: this.settings,
+        dailyNoteSettings: await this.resolveDailyNoteSettings(),
+      });
       await this.bridgeClient.postSnapshot(payload);
       this.settings.lastSnapshotAt = payload.exportedAt;
-      this.settings.lastStatus = 'Snapshot sent';
+      this.settings.lastStatus = "Snapshot sent";
       this.hasPendingSnapshotRetry = false;
       await this.saveSettings();
     } catch (error) {
@@ -169,15 +184,13 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         try {
           await applyOperationToVault(this.app.vault, operation);
           await this.bridgeClient.ackOperation(operation.id, {
-            status: 'succeeded'
+            status: "succeeded",
           });
         } catch (error) {
           await this.bridgeClient.ackOperation(operation.id, {
             status:
-              error instanceof DainvoWriteBackConflict
-                ? 'conflict'
-                : 'failed',
-            error: formatError(error)
+              error instanceof DainvoWriteBackConflict ? "conflict" : "failed",
+            error: formatError(error),
           });
         }
       }
@@ -198,100 +211,165 @@ export default class DainvoTaskManagerPlugin extends Plugin {
 
   private registerVaultEvents(): void {
     this.registerEvent(
-      this.app.vault.on('create', (file) => {
-        if (file instanceof TFile && file.extension === 'md') {
+      this.app.vault.on("create", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
           this.scheduleSnapshot();
         }
-      })
+      }),
     );
     this.registerEvent(
-      this.app.vault.on('modify', (file) => {
-        if (file instanceof TFile && file.extension === 'md') {
+      this.app.vault.on("modify", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
           this.scheduleSnapshot();
         }
-      })
+      }),
     );
     this.registerEvent(
-      this.app.vault.on('delete', (file) => {
-        if (file instanceof TFile && file.extension === 'md') {
+      this.app.vault.on("delete", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
           this.scheduleSnapshot();
         }
-      })
+      }),
     );
     this.registerEvent(
-      this.app.vault.on('rename', (file) => {
-        if (file instanceof TFile && file.extension === 'md') {
+      this.app.vault.on("rename", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
           this.scheduleSnapshot();
         }
-      })
+      }),
     );
   }
 
-  private async buildSnapshotPayload(): Promise<ObsidianSnapshotPayload> {
-    const tasks = [];
-    const markdownFiles = this.app.vault
-      .getMarkdownFiles()
-      .sort((left, right) => left.path.localeCompare(right.path));
+  async resolveDailyNoteSettings(): Promise<DailyNoteSettings> {
+    const detected = detectObsidianDailyNoteSettings();
+    const coreConfig = await this.readCoreDailyNoteSettings();
+    const dailyNotesEnabled = detectObsidianDailyNoteCapability();
 
-    for (const file of markdownFiles) {
-      const content = await this.app.vault.cachedRead(file);
-      tasks.push(
-        ...parseMarkdownTasks({
-          vaultId: this.settings.vaultId,
-          vaultName: this.settings.vaultName,
-          notePath: file.path,
-          content
-        })
-      );
+    const resolved = resolveDailyNoteSettingsFromSources({
+      settings: this.settings,
+      detected,
+      coreConfig,
+      dailyNotesEnabled,
+    });
+
+    if (!this.settings.dailyNoteSettingsOverrideEnabled) {
+      await this.cacheAutomaticDailyNoteSettings(resolved);
     }
 
-    return {
-      schemaVersion: 1,
-      vaultId: this.settings.vaultId,
-      vaultName: this.settings.vaultName,
-      vaultPath: this.settings.vaultPath,
-      exportedAt: new Date().toISOString(),
-      tasks
-    };
+    return resolved;
+  }
+
+  async copyCurrentDailyNoteSettingsToOverrides(): Promise<void> {
+    const detected = detectObsidianDailyNoteSettings();
+    const coreConfig = await this.readCoreDailyNoteSettings();
+    const automaticSettings = resolveDailyNoteSettingsFromSources({
+      settings: {
+        ...this.settings,
+        dailyNoteDateFormat: "",
+        dailyNoteFolder: "",
+        dailyNoteTemplatePath: "",
+        dailyNoteSettingsOverrideEnabled: false,
+      },
+      detected,
+      coreConfig,
+      dailyNotesEnabled: true,
+    });
+
+    this.settings.dailyNoteDateFormat = automaticSettings.dateFormat;
+    this.settings.dailyNoteFolder = automaticSettings.folder;
+    this.settings.dailyNoteTemplatePath = automaticSettings.templatePath ?? "";
+    this.settings.dailyNoteSettingsOverrideEnabled = true;
+    await this.saveSettings();
+  }
+
+  private async cacheAutomaticDailyNoteSettings(
+    settings: DailyNoteSettings,
+  ): Promise<void> {
+    const nextTemplatePath = settings.templatePath ?? "";
+
+    if (
+      this.settings.dailyNoteDateFormat === settings.dateFormat &&
+      this.settings.dailyNoteFolder === settings.folder &&
+      this.settings.dailyNoteTemplatePath === nextTemplatePath
+    ) {
+      return;
+    }
+
+    this.settings.dailyNoteDateFormat = settings.dateFormat;
+    this.settings.dailyNoteFolder = settings.folder;
+    this.settings.dailyNoteTemplatePath = nextTemplatePath;
+    await this.saveSettings();
+  }
+
+  private async readCoreDailyNoteSettings(): Promise<DetectedDailyNoteSettings> {
+    const configDir = this.app.vault.configDir || ".obsidian";
+    const normalizedConfigDir = configDir.replace(/\/+$/, "");
+    const periodicConfigPath = `${normalizedConfigDir}/plugins/periodic-notes/data.json`;
+    const dailyNotesConfigPath = `${normalizedConfigDir}/daily-notes.json`;
+
+    const periodicConfig = await this.readStoredDailyNoteSettings(
+      periodicConfigPath,
+      parsePeriodicNotesDailyConfig,
+    );
+
+    if (hasDetectedDailyNoteSettings(periodicConfig)) {
+      return periodicConfig;
+    }
+
+    return this.readStoredDailyNoteSettings(
+      dailyNotesConfigPath,
+      parseDailyNotesConfig,
+    );
+  }
+
+  private async readStoredDailyNoteSettings(
+    configPath: string,
+    parser: (value: unknown) => DetectedDailyNoteSettings,
+  ): Promise<DetectedDailyNoteSettings> {
+    try {
+      const content = await this.app.vault.adapter.read(configPath);
+      return parser(JSON.parse(content));
+    } catch {
+      return emptyDailyNoteSettings();
+    }
   }
 
   private async ensureVaultIdentity(): Promise<void> {
-    const vaultName = this.app.vault.getName();
-    const vaultPath = getVaultBasePath(this.app.vault.adapter);
+    const identity = resolveVaultIdentity({
+      adapter: this.app.vault.adapter,
+      vaultName: this.app.vault.getName(),
+      currentVaultId: this.settings.vaultId,
+    });
 
-    if (!this.settings.vaultId) {
-      this.settings.vaultId = createVaultId(vaultName, vaultPath);
-    }
-
-    this.settings.vaultName = vaultName;
-    this.settings.vaultPath = vaultPath;
+    this.settings.vaultId = identity.vaultId;
+    this.settings.vaultName = identity.vaultName;
+    this.settings.vaultPath = identity.vaultPath;
     await this.saveSettings();
   }
 }
 
-function getVaultBasePath(adapter: unknown): string {
-  if (
-    adapter &&
-    typeof adapter === 'object' &&
-    'getBasePath' in adapter &&
-    typeof adapter.getBasePath === 'function'
-  ) {
-    return String(adapter.getBasePath());
+function detectObsidianDailyNoteSettings(): DetectedDailyNoteSettings {
+  try {
+    return parseDailyNotesConfig(getDailyNoteSettings());
+  } catch {
+    return emptyDailyNoteSettings();
   }
-
-  throw new Error('Dainvo Task Manager requires Obsidian desktop vault access.');
 }
 
-function createVaultId(vaultName: string, vaultPath: string): string {
-  const random =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `obsidian-${slug(vaultName)}-${slug(vaultPath).slice(0, 24)}-${random}`;
+function detectObsidianDailyNoteCapability(): boolean {
+  try {
+    return appHasDailyNotesPluginLoaded();
+  } catch {
+    return false;
+  }
 }
 
-function slug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+function hasDetectedDailyNoteSettings(
+  settings: DetectedDailyNoteSettings,
+): boolean {
+  return Boolean(
+    settings.dateFormat || settings.folder || settings.templatePath,
+  );
 }
 
 function formatError(error: unknown): string {

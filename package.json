@@ -29,5 +29,8 @@
     "onlyBuiltDependencies": [
       "esbuild"
     ]
+  },
+  "dependencies": {
+    "obsidian-daily-notes-interface": "^0.9.5"
   }
 }

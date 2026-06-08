@@ -6,8 +6,24 @@ export type DainvoPluginSettings = {
   vaultId: string;
   vaultName: string;
   vaultPath: string;
+  dailyNoteDateFormat: string;
+  dailyNoteFolder: string;
+  dailyNoteTemplatePath: string;
+  dailyNoteSettingsOverrideEnabled: boolean;
+  dailyNoteSectionHeading: string;
+  dailyNoteCreateEnabled: boolean;
   lastStatus: string;
   lastSnapshotAt: string;
+};
+
+export type DailyNoteSettings = {
+  dateFormat: string;
+  folder: string;
+  templatePath: string | null;
+  sectionHeading: string;
+  createEnabled: boolean;
+  overrideEnabled: boolean;
+  exportedAt: string | null;
 };
 
 export type ObsidianSnapshotTask = {
@@ -34,6 +50,7 @@ export type ObsidianSnapshotPayload = {
   vaultId: string;
   vaultName: string;
   vaultPath: string;
+  dailyNoteSettings: DailyNoteSettings;
   exportedAt: string;
   tasks: ObsidianSnapshotTask[];
 };
@@ -44,7 +61,7 @@ export type PairResult = {
   baseUrl: string;
 };
 
-export type PendingOperation = {
+export type PendingMutationOperation = {
   id: string;
   operationType: 'update' | 'delete' | 'complete' | 'reopen' | 'move';
   task: {
@@ -58,6 +75,8 @@ export type PendingOperation = {
   source: ObsidianSnapshotTask;
 };
 
+export type PendingOperation = PendingMutationOperation;
+
 export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   bridgeBaseUrl: '',
   pairingCode: '',
@@ -66,7 +85,12 @@ export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   vaultId: '',
   vaultName: '',
   vaultPath: '',
+  dailyNoteDateFormat: '',
+  dailyNoteFolder: '',
+  dailyNoteTemplatePath: '',
+  dailyNoteSettingsOverrideEnabled: false,
+  dailyNoteSectionHeading: '## Dainvo',
+  dailyNoteCreateEnabled: true,
   lastStatus: 'Not paired',
   lastSnapshotAt: ''
 };
-

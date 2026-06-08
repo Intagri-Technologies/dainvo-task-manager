@@ -1,7 +1,12 @@
-import { createHash } from 'node:crypto';
-import path from 'node:path';
+import { createHash } from "node:crypto";
+import path from "node:path";
 
-import type { ObsidianSnapshotTask } from './types';
+import { buildOpenUri } from "./openUri";
+import { parseTaskLine } from "./taskLine";
+import type { ObsidianSnapshotTask } from "./types";
+
+export { buildOpenUri } from "./openUri";
+export { hashTaskLine } from "./taskLine";
 
 export type ParseMarkdownTasksInput = {
   vaultId: string;
@@ -10,22 +15,12 @@ export type ParseMarkdownTasksInput = {
   content: string;
 };
 
-const TASK_LINE_RE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
-const BLOCK_ID_RE = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/;
-const DUE_DATE_RE = /(?:📅|\[due::)\s*(\d{4}-\d{2}-\d{2})\]?/;
-const COMPLETION_DATE_RE = /✅\s*(\d{4}-\d{2}-\d{2})/;
-const TAG_RE = /(?:^|\s)#([A-Za-z0-9/_-]+)/g;
-const RECURRENCE_RE = /🔁\s+[^📅✅➕⏳🛫❌🔺⏫🔼🔽⏬#^]+/gu;
-const UNSUPPORTED_TASKS_EMOJI_METADATA_RE =
-  /(?:➕|⏳|🛫|❌)\s*\d{4}-\d{2}-\d{2}|[🔽⏬]/gu;
-const UNSUPPORTED_DATAVIEW_FIELD_RE =
-  /\[(?!(?:due|completion|completed|done)::)[A-Za-z][A-Za-z0-9_-]*::\s*[^\]]+\]/gi;
-
 export function parseMarkdownTasks(
-  input: ParseMarkdownTasksInput
+  input: ParseMarkdownTasksInput,
 ): ObsidianSnapshotTask[] {
+  const notePath = normalizeNotePath(input.notePath);
   const lines = input.content.split(/\r?\n/);
-  const noteTitle = path.basename(input.notePath, path.extname(input.notePath));
+  const noteTitle = path.basename(notePath, path.extname(notePath));
   const tasks: ObsidianSnapshotTask[] = [];
   let heading: string | null = null;
 
@@ -36,125 +31,45 @@ export function parseMarkdownTasks(
       return;
     }
 
-    const match = TASK_LINE_RE.exec(line);
-    if (!match) {
+    const parsed = parseTaskLine(line);
+    if (!parsed) {
       return;
     }
 
-    const body = match[4] ?? '';
-    const blockId = extractBlockId(body);
-    const status = match[2]?.toLowerCase() === 'x' ? 'completed' : 'open';
-    const dueAt = parseDueAt(body);
-    const labels = parseTags(body);
-    const completedAt =
-      status === 'completed' ? parseCompletedAt(body) : null;
-
     tasks.push({
-      providerTaskId: blockId
-        ? `${input.vaultId}:block:${blockId}`
-        : `${input.vaultId}:line:${sha256(`${input.notePath}:${index + 1}`)}`,
-      title: normalizeTaskTitle(body),
-      status,
-      priority: parsePriority(body),
-      labels,
-      dueAt,
-      completedAt,
-      notePath: normalizeNotePath(input.notePath),
+      ...parsed,
+      providerTaskId: buildProviderTaskId({
+        vaultId: input.vaultId,
+        notePath,
+        lineNumber: index + 1,
+        blockId: parsed.blockId,
+      }),
+      notePath,
       noteTitle,
       heading,
       lineNumber: index + 1,
-      blockId,
-      lineHash: hashTaskLine(line),
-      rawTaskLine: line,
-      openUri: buildOpenUri(input.vaultName, input.notePath, blockId),
-      parserFormat:
-        dueAt || completedAt || labels.length > 0 || parsePriority(body) !== 4
-          ? 'tasks'
-          : 'markdown'
+      openUri: buildOpenUri(input.vaultName, notePath, parsed.blockId),
     });
   });
 
   return tasks;
 }
 
-export function hashTaskLine(line: string): string {
-  return sha256(line.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
-}
-
-export function buildOpenUri(
-  vaultName: string,
-  notePath: string,
-  blockId?: string | null
-): string {
-  const url = new URL('obsidian://open');
-  url.searchParams.set('vault', vaultName);
-  url.searchParams.set('file', normalizeNotePath(notePath));
-
-  if (blockId) {
-    url.searchParams.set('block', blockId);
-  }
-
-  return url.toString();
-}
-
-function normalizeTaskTitle(body: string): string {
-  const title = body
-    .replace(BLOCK_ID_RE, '')
-    .replace(DUE_DATE_RE, '')
-    .replace(COMPLETION_DATE_RE, '')
-    .replace(RECURRENCE_RE, '')
-    .replace(UNSUPPORTED_TASKS_EMOJI_METADATA_RE, '')
-    .replace(UNSUPPORTED_DATAVIEW_FIELD_RE, '')
-    .replace(/[🔺⏫🔼🔽⏬]/gu, '')
-    .replace(TAG_RE, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return title || 'Untitled Obsidian task';
-}
-
-function parseDueAt(body: string): string | null {
-  const due = DUE_DATE_RE.exec(body)?.[1];
-  return due ? `${due}T00:00:00.000Z` : null;
-}
-
-function parseCompletedAt(body: string): string | null {
-  const completed = COMPLETION_DATE_RE.exec(body)?.[1];
-  return completed ? `${completed}T00:00:00.000Z` : new Date().toISOString();
-}
-
-function parsePriority(body: string): number {
-  if (body.includes('🔺')) {
-    return 1;
-  }
-  if (body.includes('⏫')) {
-    return 2;
-  }
-  if (body.includes('🔼')) {
-    return 3;
-  }
-  return 4;
-}
-
-function parseTags(body: string): string[] {
-  const labels = new Set<string>();
-  for (const match of body.matchAll(TAG_RE)) {
-    const label = match[1]?.trim();
-    if (label) {
-      labels.add(label);
-    }
-  }
-  return [...labels];
-}
-
-function extractBlockId(body: string): string | null {
-  return BLOCK_ID_RE.exec(body)?.[1] ?? null;
+function buildProviderTaskId(input: {
+  vaultId: string;
+  notePath: string;
+  lineNumber: number;
+  blockId: string | null;
+}): string {
+  return input.blockId
+    ? `${input.vaultId}:block:${input.blockId}`
+    : `${input.vaultId}:line:${sha256(`${input.notePath}:${input.lineNumber}`)}`;
 }
 
 function normalizeNotePath(notePath: string): string {
-  return notePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  return notePath.replace(/\\/g, "/").replace(/^\/+/, "");
 }
 
 function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return createHash("sha256").update(value).digest("hex");
 }

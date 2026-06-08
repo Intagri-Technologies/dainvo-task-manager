@@ -1,9 +1,18 @@
 import type {
+  DailyNoteSettings,
   DainvoPluginSettings,
   ObsidianSnapshotPayload,
   PairResult,
   PendingOperation
 } from './types';
+
+const PREFERRED_BRIDGE_BASE_URLS = [
+  'http://127.0.0.1:58234',
+  'http://127.0.0.1:58235',
+  'http://127.0.0.1:58236',
+  'http://127.0.0.1:58237',
+  'http://127.0.0.1:58238'
+] as const;
 
 export class DainvoBridgeClient {
   constructor(private readonly getSettings: () => DainvoPluginSettings) {}
@@ -14,6 +23,7 @@ export class DainvoBridgeClient {
     vaultName: string;
     vaultPath: string;
     pluginVersion: string;
+    dailyNoteSettings: DailyNoteSettings;
   }): Promise<PairResult> {
     const response = await fetch(
       `${normalizeBaseUrl(this.getSettings().bridgeBaseUrl)}/obsidian/v1/pair`,
@@ -28,8 +38,8 @@ export class DainvoBridgeClient {
   }
 
   async postSnapshot(payload: ObsidianSnapshotPayload): Promise<void> {
-    const response = await fetch(
-      `${normalizeBaseUrl(this.getSettings().bridgeBaseUrl)}/obsidian/v1/snapshot`,
+    const response = await this.fetchWithBridgeFailover(
+      '/obsidian/v1/snapshot',
       {
         method: 'POST',
         headers: this.authHeaders(),
@@ -41,8 +51,8 @@ export class DainvoBridgeClient {
   }
 
   async listOperations(): Promise<PendingOperation[]> {
-    const response = await fetch(
-      `${normalizeBaseUrl(this.getSettings().bridgeBaseUrl)}/obsidian/v1/operations`,
+    const response = await this.fetchWithBridgeFailover(
+      '/obsidian/v1/operations',
       {
         method: 'GET',
         headers: this.authHeaders()
@@ -59,8 +69,8 @@ export class DainvoBridgeClient {
     operationId: string,
     payload: { status: 'succeeded' | 'failed' | 'conflict'; error?: string }
   ): Promise<void> {
-    const response = await fetch(
-      `${normalizeBaseUrl(this.getSettings().bridgeBaseUrl)}/obsidian/v1/operations/${encodeURIComponent(operationId)}/ack`,
+    const response = await this.fetchWithBridgeFailover(
+      `/obsidian/v1/operations/${encodeURIComponent(operationId)}/ack`,
       {
         method: 'POST',
         headers: this.authHeaders(),
@@ -69,6 +79,43 @@ export class DainvoBridgeClient {
     );
 
     await parseJsonResponse<unknown>(response);
+  }
+
+  private async fetchWithBridgeFailover(
+    path: string,
+    init: RequestInit
+  ): Promise<Response> {
+    const settings = this.getSettings();
+    const candidates = [
+      normalizeBaseUrl(settings.bridgeBaseUrl),
+      ...PREFERRED_BRIDGE_BASE_URLS
+    ];
+    const seen = new Set<string>();
+    let lastError: unknown = null;
+
+    for (const baseUrl of candidates) {
+      if (seen.has(baseUrl)) {
+        continue;
+      }
+      seen.add(baseUrl);
+
+      try {
+        const response = await fetch(`${baseUrl}${path}`, init);
+
+        if (response.ok || response.status !== 404) {
+          settings.bridgeBaseUrl = baseUrl;
+          return response;
+        }
+
+        lastError = new Error('Dainvo bridge endpoint was not found.');
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Failed to fetch Dainvo bridge.');
   }
 
   private authHeaders(): Record<string, string> {
@@ -109,4 +156,3 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 
   return payload as T;
 }
-
