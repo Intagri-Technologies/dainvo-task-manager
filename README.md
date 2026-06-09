@@ -55,11 +55,10 @@ Copy `main.js`, `manifest.json`, and `styles.css` into:
 
 ## Release
 
-The GitHub release tag must match `manifest.json` exactly. For example, version `1.0.0` should use tag `1.0.0`.
+The GitHub release tag must match `manifest.json` exactly. For example, version `1.0.1` should use tag `1.0.1`.
 
 The release workflow uploads the files Obsidian expects:
 
 - `main.js`
 - `manifest.json`
 - `styles.css`
-- `dainvo-task-manager.zip`

@@ -302,8 +302,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   }
 
   private async readCoreDailyNoteSettings(): Promise<DetectedDailyNoteSettings> {
-    const configDir = this.app.vault.configDir || ".obsidian";
-    const normalizedConfigDir = configDir.replace(/\/+$/, "");
+    const normalizedConfigDir = this.app.vault.configDir.replace(/\/+$/, "");
     const periodicConfigPath = `${normalizedConfigDir}/plugins/periodic-notes/data.json`;
     const dailyNotesConfigPath = `${normalizedConfigDir}/daily-notes.json`;
 

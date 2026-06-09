@@ -6,7 +6,9 @@ on:
       - '*'
 
 permissions:
+  attestations: write
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -23,11 +25,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
-      - run: zip dainvo-task-manager.zip main.js manifest.json styles.css
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
       - uses: softprops/action-gh-release@v2
         with:
+          name: Dainvo Task Manager ${{ github.ref_name }}
+          body: |
+            Dainvo Task Manager ${{ github.ref_name }}
+
+            - Syncs vault tasks with Dainvo through the local desktop bridge.
+            - Includes pairing, vault task snapshots, Daily Notes settings export, and write-back for existing task lines.
           files: |
             main.js
             manifest.json
             styles.css
-            dainvo-task-manager.zip

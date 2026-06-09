@@ -1,7 +1,7 @@
 {
   "name": "dainvo-task-manager",
-  "version": "1.0.0",
-  "description": "Obsidian community plugin for syncing vault tasks with Dainvo.",
+  "version": "1.0.1",
+  "description": "Community plugin for syncing vault tasks with Dainvo.",
   "type": "module",
   "main": "main.js",
   "scripts": {

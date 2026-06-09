@@ -19,17 +19,23 @@ export function resolveVaultIdentity(input: {
 }
 
 function getVaultBasePath(adapter: unknown): string {
-  if (
-    adapter &&
-    typeof adapter === "object" &&
-    "getBasePath" in adapter &&
-    typeof adapter.getBasePath === "function"
-  ) {
+  if (hasBasePathAdapter(adapter)) {
     return String(adapter.getBasePath());
   }
 
   throw new Error(
     "Dainvo Task Manager requires Obsidian desktop vault access.",
+  );
+}
+
+function hasBasePathAdapter(adapter: unknown): adapter is {
+  getBasePath(): string;
+} {
+  return Boolean(
+    adapter &&
+      typeof adapter === "object" &&
+      "getBasePath" in adapter &&
+      typeof (adapter as { getBasePath?: unknown }).getBasePath === "function",
   );
 }
 

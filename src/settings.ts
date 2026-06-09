@@ -8,10 +8,14 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.render();
+  }
+
+  private render(): void {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: 'Dainvo Task Manager' });
+    new Setting(containerEl).setName('Dainvo Task Manager').setHeading();
     containerEl.createEl('p', {
       cls: 'dainvo-task-manager-status',
       text: `Status: ${this.plugin.settings.lastStatus}`
@@ -54,14 +58,16 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
             try {
               await this.plugin.pairWithDainvo();
               new Notice('Dainvo pairing complete.');
-              this.display();
+              this.render();
             } catch (error) {
               new Notice(formatError(error));
             }
           })
       );
 
-    containerEl.createEl('h3', { text: 'Daily Notes task creation' });
+    new Setting(containerEl)
+      .setName('Daily Notes task creation')
+      .setHeading();
     const overrideEnabled =
       this.plugin.settings.dailyNoteSettingsOverrideEnabled;
     const dailyNoteStatusEl = containerEl.createEl('p', {
@@ -102,7 +108,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.dailyNoteSettingsOverrideEnabled = value;
             await this.plugin.saveSettings();
-            this.display();
+            this.render();
           })
       );
 
@@ -116,7 +122,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           try {
             await this.plugin.copyCurrentDailyNoteSettingsToOverrides();
             new Notice('Daily Notes settings copied into overrides.');
-            this.display();
+            this.render();
           } catch (error) {
             new Notice(formatError(error));
           }
@@ -187,7 +193,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           try {
             await this.plugin.pushSnapshotNow();
             new Notice('Dainvo snapshot sent.');
-            this.display();
+            this.render();
           } catch (error) {
             new Notice(formatError(error));
           }
@@ -202,7 +208,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           try {
             await this.plugin.pollPendingOperations();
             new Notice('Dainvo write-back poll finished.');
-            this.display();
+            this.render();
           } catch (error) {
             new Notice(formatError(error));
           }

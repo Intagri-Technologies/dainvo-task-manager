@@ -3,8 +3,6 @@ import type { TFile, Vault } from "obsidian";
 import { hashTaskLine, patchMarkdownTaskLine } from "./taskLine";
 import type { PendingMutationOperation, PendingOperation } from "./types";
 
-const BLOCK_ID_RE = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/;
-
 export class DainvoWriteBackConflict extends Error {
   constructor(message: string) {
     super(message);
