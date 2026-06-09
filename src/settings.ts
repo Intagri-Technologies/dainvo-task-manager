@@ -15,7 +15,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl).setName('Dainvo Task Manager').setHeading();
+    new Setting(containerEl).setName('Connection').setHeading();
     containerEl.createEl('p', {
       cls: 'dainvo-task-manager-status',
       text: `Status: ${this.plugin.settings.lastStatus}`
