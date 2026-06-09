@@ -1,6 +1,6 @@
 {
   "name": "dainvo-task-manager",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Community plugin for syncing vault tasks with Dainvo.",
   "type": "module",
   "main": "main.js",

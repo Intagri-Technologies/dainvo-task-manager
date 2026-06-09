@@ -1,7 +1,7 @@
 {
   "id": "dainvo-task-manager",
   "name": "Dainvo Task Manager",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "1.5.0",
   "description": "Sync vault tasks with Dainvo using a local desktop bridge.",
   "author": "Intagri Technologies",

@@ -55,7 +55,7 @@ Copy `main.js`, `manifest.json`, and `styles.css` into:
 
 ## Release
 
-The GitHub release tag must match `manifest.json` exactly. For example, version `1.0.2` should use tag `1.0.2`.
+The GitHub release tag must match `manifest.json` exactly. For example, version `1.0.3` should use tag `1.0.3`.
 
 The release workflow uploads the files Obsidian expects:
 
