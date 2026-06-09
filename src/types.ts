@@ -6,6 +6,7 @@ export type DainvoPluginSettings = {
   vaultId: string;
   vaultName: string;
   vaultPath: string;
+  vaultConfigDir: string;
   dailyNoteDateFormat: string;
   dailyNoteFolder: string;
   dailyNoteTemplatePath: string;
@@ -50,6 +51,7 @@ export type ObsidianSnapshotPayload = {
   vaultId: string;
   vaultName: string;
   vaultPath: string;
+  vaultConfigDir: string;
   dailyNoteSettings: DailyNoteSettings;
   exportedAt: string;
   tasks: ObsidianSnapshotTask[];
@@ -85,6 +87,7 @@ export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   vaultId: '',
   vaultName: '',
   vaultPath: '',
+  vaultConfigDir: '.obsidian',
   dailyNoteDateFormat: '',
   dailyNoteFolder: '',
   dailyNoteTemplatePath: '',

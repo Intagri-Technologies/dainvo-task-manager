@@ -103,6 +103,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       vaultId: this.settings.vaultId,
       vaultName: this.settings.vaultName,
       vaultPath: this.settings.vaultPath,
+      vaultConfigDir: this.settings.vaultConfigDir,
       pluginVersion: this.manifest.version,
       dailyNoteSettings: await this.resolveDailyNoteSettings(),
     });
@@ -343,6 +344,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     this.settings.vaultId = identity.vaultId;
     this.settings.vaultName = identity.vaultName;
     this.settings.vaultPath = identity.vaultPath;
+    this.settings.vaultConfigDir = this.app.vault.configDir || '.obsidian';
     await this.saveSettings();
   }
 }

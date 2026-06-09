@@ -34,6 +34,7 @@ export async function buildSnapshotPayload(input: {
     vaultId: input.settings.vaultId,
     vaultName: input.settings.vaultName,
     vaultPath: input.settings.vaultPath,
+    vaultConfigDir: input.settings.vaultConfigDir,
     dailyNoteSettings: input.dailyNoteSettings,
     exportedAt: new Date().toISOString(),
     tasks,

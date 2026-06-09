@@ -28,6 +28,7 @@ export class DainvoBridgeClient {
     vaultId: string;
     vaultName: string;
     vaultPath: string;
+    vaultConfigDir: string;
     pluginVersion: string;
     dailyNoteSettings: DailyNoteSettings;
   }): Promise<PairResult> {
