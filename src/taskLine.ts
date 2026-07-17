@@ -34,6 +34,11 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
   }
 
   const body = match[4] ?? "";
+  const title = normalizeTaskTitle(body);
+  if (!title) {
+    return null;
+  }
+
   const status = match[2]?.toLowerCase() === "x" ? "completed" : "open";
   const dueAt = parseDueAt(body);
   const completedAt = status === "completed" ? parseCompletedAt(body) : null;
@@ -41,7 +46,7 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
   const priority = parsePriority(body);
 
   return {
-    title: normalizeTaskTitle(body),
+    title,
     status,
     priority,
     labels,
@@ -119,7 +124,7 @@ function normalizeTaskTitle(body: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  return title || "Untitled Obsidian task";
+  return title;
 }
 
 function parseDueAt(body: string): string | null {
