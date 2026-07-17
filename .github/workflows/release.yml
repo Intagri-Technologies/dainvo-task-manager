@@ -45,7 +45,7 @@ jobs:
 
             - Syncs task projections directly to Dainvo mobile from Obsidian desktop and mobile.
             - Keeps the local Dainvo desktop bridge independently available on desktop.
-            - Supports stable IDs plus mobile complete/reopen write-back without uploading Markdown bodies or vault files.
+            - Supports stable IDs plus mobile complete/reopen/delete write-back without uploading Markdown bodies or vault files.
           files: |
             main.js
             manifest.json
