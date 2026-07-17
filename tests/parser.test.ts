@@ -95,6 +95,32 @@ describe("parseMarkdownTasks", () => {
     });
   });
 
+  it("excludes blank and metadata-only tasks", () => {
+    const tasks = parseMarkdownTasks({
+      vaultId: "vault-blank",
+      vaultName: "Personal",
+      notePath: "Inbox.md",
+      content: [
+        "- [ ]",
+        "- [ ] ",
+        "- [x]    ",
+        "- [ ] #inbox",
+        "- [ ] 📅 2026-07-16",
+        "- [x] ✅ 2026-07-15",
+        "- [ ] 🔺 ^priority-only",
+        "- [ ] 🔁 every day ⏳ 2026-07-16 [context:: home] 🔽",
+        "- [ ] 2026-07-16 is visible task text",
+        "- [ ] Keep this title #inbox 📅 2026-07-16 ^keep",
+      ].join("\n"),
+    });
+
+    expect(tasks).toHaveLength(2);
+    expect(tasks.map((task) => task.title)).toEqual([
+      "2026-07-16 is visible task text",
+      "Keep this title",
+    ]);
+  });
+
   it("percent-encodes spaces in Obsidian open URIs", () => {
     const openUri = buildOpenUri(
       "Work Vault",

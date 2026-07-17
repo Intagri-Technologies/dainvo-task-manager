@@ -11,6 +11,7 @@ With this plugin, you can keep writing tasks naturally in Obsidian while Dainvo 
 - Bring Obsidian Markdown checkbox tasks into your Dainvo planner.
 - Plan notes-based tasks alongside your calendar, meetings, and other task sources.
 - Keep task titles, completion status, tags, due dates, and priorities in sync.
+- Ignore blank and metadata-only checkboxes instead of creating placeholder tasks.
 - Use Daily Notes and Obsidian Tasks style metadata naturally.
 - Complete and update supported tasks from Dainvo, with changes reflected in Obsidian.
 - Pair multiple vaults separately so each workspace stays organized.
