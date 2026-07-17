@@ -83,9 +83,13 @@ export class DainvoOAuthClient {
   }
 
   async getValidSession(): Promise<CloudSession | null> {
-    const session = this.secrets.getCloudSession();
-    if (!session) {
+    const storedSession = this.secrets.getCloudSession();
+    if (!storedSession) {
       return null;
+    }
+    const session = hydrateSessionIdentity(storedSession);
+    if (session !== storedSession) {
+      this.secrets.setCloudSession(session);
     }
     if (session.expiresAt - Date.now() > REFRESH_EARLY_MS) {
       return session;
@@ -184,8 +188,8 @@ function sessionFromToken(
   token: OAuthTokenResponse,
   previousRefreshToken = "",
 ): CloudSession {
-  const userId = readJwtSubject(token.access_token);
-  if (!userId) {
+  const identity = readJwtIdentity(token.access_token);
+  if (!identity.userId) {
     throw new Error("Dainvo returned a token without an account identity.");
   }
   const refreshToken = token.refresh_token?.trim() || previousRefreshToken;
@@ -197,14 +201,26 @@ function sessionFromToken(
     accessToken: token.access_token,
     refreshToken,
     expiresAt: Date.now() + Math.max(60, token.expires_in ?? 3600) * 1000,
-    userId,
+    userId: identity.userId,
+    ...(identity.email ? { email: identity.email } : {}),
   };
 }
 
-function readJwtSubject(token: string): string | null {
+function hydrateSessionIdentity(session: CloudSession): CloudSession {
+  const identity = readJwtIdentity(session.accessToken);
+  if (!identity.email || session.email === identity.email) {
+    return session;
+  }
+  return { ...session, email: identity.email };
+}
+
+function readJwtIdentity(token: string): {
+  userId: string | null;
+  email: string;
+} {
   const payloadPart = token.split(".")[1];
   if (!payloadPart) {
-    return null;
+    return { userId: null, email: "" };
   }
   try {
     const padded = payloadPart.replace(/-/g, "+").replace(/_/g, "/")
@@ -214,12 +230,21 @@ function readJwtSubject(token: string): string | null {
     );
     const payload = JSON.parse(new TextDecoder().decode(bytes)) as {
       sub?: unknown;
+      email?: unknown;
     };
-    return typeof payload.sub === "string" && payload.sub.trim()
-      ? payload.sub.trim()
-      : null;
+    const userId =
+      typeof payload.sub === "string" && payload.sub.trim()
+        ? payload.sub.trim()
+        : null;
+    const email =
+      typeof payload.email === "string" &&
+      payload.email.trim().length <= 320 &&
+      !/[\u0000-\u001f\u007f]/u.test(payload.email)
+        ? payload.email.trim()
+        : "";
+    return { userId, email };
   } catch {
-    return null;
+    return { userId: null, email: "" };
   }
 }
 

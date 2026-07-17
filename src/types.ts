@@ -157,6 +157,7 @@ export type CloudSession = {
   refreshToken: string;
   expiresAt: number;
   userId: string;
+  email?: string;
 };
 
 export type PendingPkce = {

@@ -78,7 +78,10 @@ describe("Dainvo OAuth PKCE client", () => {
     requestUrl.mockResolvedValue({
       status: 200,
       text: JSON.stringify({
-        access_token: jwtFor("00000000-0000-4000-8000-000000000001"),
+        access_token: jwtFor(
+          "00000000-0000-4000-8000-000000000001",
+          "person@example.com",
+        ),
         refresh_token: "refresh-token",
         expires_in: 3600,
       }),
@@ -90,6 +93,7 @@ describe("Dainvo OAuth PKCE client", () => {
     });
 
     expect(session.userId).toBe("00000000-0000-4000-8000-000000000001");
+    expect(session.email).toBe("person@example.com");
     expect(secrets.getCloudSession()?.refreshToken).toBe("refresh-token");
     expect(requestUrl).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -97,6 +101,28 @@ describe("Dainvo OAuth PKCE client", () => {
         method: "POST",
       }),
     );
+  });
+
+  it("backfills the display email for an existing stored session", async () => {
+    const secrets = new DainvoSecureStore(
+      new MemorySecretStorage() as never,
+    );
+    secrets.setCloudSession({
+      accessToken: jwtFor(
+        "00000000-0000-4000-8000-000000000001",
+        "existing@example.com",
+      ),
+      refreshToken: "refresh-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+      userId: "00000000-0000-4000-8000-000000000001",
+    });
+
+    const client = new DainvoOAuthClient(config, secrets);
+    const session = await client.getValidSession();
+
+    expect(session?.email).toBe("existing@example.com");
+    expect(secrets.getCloudSession()?.email).toBe("existing@example.com");
+    expect(requestUrl).not.toHaveBeenCalled();
   });
 
   it("clears a terminally invalid refresh session and requires sign-in", async () => {
@@ -146,8 +172,8 @@ describe("Dainvo OAuth PKCE client", () => {
   });
 });
 
-function jwtFor(subject: string): string {
+function jwtFor(subject: string, email?: string): string {
   const encode = (value: object) =>
     Buffer.from(JSON.stringify(value)).toString("base64url");
-  return `${encode({ alg: "none" })}.${encode({ sub: subject })}.signature`;
+  return `${encode({ alg: "none" })}.${encode({ sub: subject, email })}.signature`;
 }

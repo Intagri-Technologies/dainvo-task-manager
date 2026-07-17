@@ -188,6 +188,14 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     return this.secureStore?.getCloudSession()?.userId ?? "";
   }
 
+  cloudSignedInAccountLabel(): string {
+    const session = this.secureStore?.getCloudSession();
+    if (!session) {
+      return "";
+    }
+    return session.email?.trim() || `Account ${session.userId.slice(0, 8)}`;
+  }
+
   async pairWithDainvo(): Promise<void> {
     if (!Platform.isDesktopApp) {
       throw new Error("The local Dainvo bridge is available on desktop only.");
@@ -510,7 +518,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         : "disabled";
     }
     await this.saveSettings();
-    new Notice("Signed in to Dainvo.");
+    new Notice(`Signed in to Dainvo as ${this.cloudSignedInAccountLabel()}.`);
     if (this.settings.cloudSyncEnabled) {
       await this.cloudCoordinator.requestSync();
     }

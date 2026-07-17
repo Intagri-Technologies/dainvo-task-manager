@@ -40,7 +40,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
     const accountStatus = containerEl.createEl("p", {
       cls: "dainvo-task-manager-status",
       text: this.plugin.isCloudSignedIn()
-        ? `Dainvo account: signed in${settings.cloudPlanName ? ` · ${settings.cloudPlanName}` : " · checking plan…"}`
+        ? `Dainvo account: ${this.plugin.cloudSignedInAccountLabel()}${settings.cloudPlanName ? ` · ${settings.cloudPlanName}` : " · checking plan…"}`
         : "Dainvo account: signed out",
     });
     if (this.plugin.isCloudSignedIn()) {
@@ -48,11 +48,13 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
         .refreshCloudAccessStatus()
         .then((access) => {
           accountStatus.setText(
-            `Dainvo account: signed in · ${access.planName || "Unknown plan"} · ${access.allowed ? "mobile sync included" : "upgrade required"}`,
+            `Dainvo account: ${this.plugin.cloudSignedInAccountLabel()} · ${access.planName || "Unknown plan"} · ${access.allowed ? "mobile sync included" : "upgrade required"}`,
           );
         })
         .catch(() => {
-          accountStatus.setText("Dainvo account: signed in · plan check unavailable");
+          accountStatus.setText(
+            `Dainvo account: ${this.plugin.cloudSignedInAccountLabel()} · plan check unavailable`,
+          );
         });
     }
 
@@ -60,7 +62,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
       .setName(this.plugin.isCloudSignedIn() ? "Dainvo account" : "Sign in to Dainvo")
       .setDesc(
         this.plugin.isCloudSignedIn()
-          ? "Signing out pauses this vault without deleting its cloud copy."
+          ? `Signed in as ${this.plugin.cloudSignedInAccountLabel()}. Signing out pauses this vault without deleting its cloud copy.`
           : "Opens the Dainvo account site and returns here through Obsidian after secure PKCE authorization.",
       )
       .addButton((button) =>
