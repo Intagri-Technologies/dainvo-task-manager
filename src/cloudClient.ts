@@ -56,6 +56,7 @@ export class DainvoCloudClient {
           device_id: input.deviceId,
           publisher_kind: "obsidian_plugin",
           identity_mode: input.identityMode,
+          operation_capabilities: ["complete", "reopen", "delete"],
           takeover: input.takeover,
         },
       },

@@ -17,8 +17,11 @@ Website: [dainvo.com](https://dainvo.com)
 - Keep the existing localhost Dainvo desktop pairing for planning, Daily Notes,
   and the broader desktop editing workflow.
 
-Dainvo mobile does not create, rename, move, or delete Obsidian tasks. Those
-changes remain in Obsidian or Dainvo desktop.
+Dainvo mobile can also request a confirmed delete when this plugin is the
+selected publisher. The plugin verifies the stable task identity and source
+line, removes only the complete Markdown task line, then republishes the vault
+snapshot before acknowledging the operation. Create, rename, and move remain in
+Obsidian or Dainvo desktop.
 
 ## Direct mobile task sync
 
@@ -36,7 +39,8 @@ installation or Dainvo desktop is selected, sync pauses until you intentionally
 choose **Use this device**.
 
 The publisher sends at most 300 active nonblank tasks and the 700 most recently
-completed nonblank tasks. It checks for queued mobile complete/reopen operations
+completed nonblank tasks. It advertises complete/reopen/delete support and
+checks for queued mobile operations
 every 30 seconds while Obsidian is active. Obsidian desktop continues while open
 or minimized. Obsidian mobile runs while foregrounded and on resume; the mobile
 operating system may suspend Obsidian after it is closed.

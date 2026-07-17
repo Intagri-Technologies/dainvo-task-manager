@@ -180,6 +180,7 @@ export type CloudPublisherVault = {
   publisher_device_id: string | null;
   publisher_kind: "desktop" | "obsidian_plugin";
   identity_mode: StableIdMode;
+  operation_capabilities?: Array<"complete" | "reopen" | "delete">;
   sync_enabled: boolean;
   connection_status: "online" | "offline" | "stale";
   last_published_at: string | null;
@@ -189,7 +190,7 @@ export type CloudPublisherVault = {
 export type CloudPendingOperation = {
   id: string;
   operation_id: string;
-  operation_type: "complete" | "reopen";
+  operation_type: "complete" | "reopen" | "delete";
   task_id: string;
   provider_task_id: string;
   local_vault_id: string;

@@ -61,6 +61,21 @@ describe("cloud pending-operation conflict handling", () => {
       "write",
     );
   });
+
+  it("allows delete only for the current projected version and status", () => {
+    const deletion = { ...operation, operation_type: "delete" as const };
+    expect(classifyPendingOperation(deletion, "open", null)).toBe("write");
+    expect(
+      classifyPendingOperation(
+        { ...deletion, current_task_server_version: 5 },
+        "open",
+        null,
+      ),
+    ).toBe("stale_server_version");
+    expect(classifyPendingOperation(deletion, "completed", null)).toBe(
+      "local_status_changed",
+    );
+  });
 });
 
 describe("relay task window selection", () => {

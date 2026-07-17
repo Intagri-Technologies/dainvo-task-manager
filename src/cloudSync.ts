@@ -344,6 +344,10 @@ export class ObsidianCloudSyncCoordinator {
     return selectRelayTasks([...this.taskIndex.values()].flat());
   }
 
+  private taskOwners(): ObsidianSnapshotTask[] {
+    return selectRelayTaskOwners([...this.taskIndex.values()].flat());
+  }
+
   private async publishCurrentSnapshot(deviceId: string): Promise<void> {
     const settings = this.host.getSettings();
     const selected = this.selectedTasks();
@@ -437,14 +441,18 @@ export class ObsidianCloudSyncCoordinator {
     let needsRepublish = false;
     // Use the same deterministic first-owner/window selection that was
     // published, so a flagged legacy duplicate can never receive write-back.
-    const tasks = this.selectedTasks();
+    const tasks = this.taskOwners();
 
     for (const entry of Object.values(settings.cloudOperationJournal).sort(
       (left, right) => left.receivedAt.localeCompare(right.receivedAt),
     )) {
       const operation = entry.operation;
       const desiredStatus =
-        operation.operation_type === "complete" ? "completed" : "open";
+        operation.operation_type === "delete"
+          ? null
+          : operation.operation_type === "complete"
+            ? "completed"
+            : "open";
 
       if (entry.state === "written_pending_publish") {
         needsRepublish = true;
@@ -456,11 +464,15 @@ export class ObsidianCloudSyncCoordinator {
         (candidate) => candidate.providerTaskId === operation.provider_task_id,
       );
       if (!task) {
-        resolutions.push({
-          operation_id: operation.operation_id,
-          status: "rejected",
-          result: { reason: "task_missing" },
-        });
+        resolutions.push(
+          operation.operation_type === "delete"
+            ? appliedResolution(operation, "task_already_absent")
+            : {
+                operation_id: operation.operation_id,
+                status: "rejected",
+                result: { reason: "task_missing" },
+              },
+        );
         continue;
       }
       const disposition = classifyPendingOperation(
@@ -549,16 +561,7 @@ export class ObsidianCloudSyncCoordinator {
 export function selectRelayTasks(
   tasks: readonly ObsidianSnapshotTask[],
 ): ObsidianSnapshotTask[] {
-  const firstOwners: ObsidianSnapshotTask[] = [];
-  const seenProviderTaskIds = new Set<string>();
-  for (const task of [...tasks].sort(compareTaskPosition)) {
-    if (seenProviderTaskIds.has(task.providerTaskId)) {
-      continue;
-    }
-    seenProviderTaskIds.add(task.providerTaskId);
-    firstOwners.push(task);
-  }
-
+  const firstOwners = selectRelayTaskOwners(tasks);
   const active = firstOwners
     .filter((task) => task.status === "open")
     .sort(compareTaskPosition)
@@ -575,16 +578,31 @@ export function selectRelayTasks(
   return [...active, ...completed];
 }
 
+export function selectRelayTaskOwners(
+  tasks: readonly ObsidianSnapshotTask[],
+): ObsidianSnapshotTask[] {
+  const firstOwners: ObsidianSnapshotTask[] = [];
+  const seenProviderTaskIds = new Set<string>();
+  for (const task of [...tasks].sort(compareTaskPosition)) {
+    if (seenProviderTaskIds.has(task.providerTaskId)) {
+      continue;
+    }
+    seenProviderTaskIds.add(task.providerTaskId);
+    firstOwners.push(task);
+  }
+  return firstOwners;
+}
+
 export function classifyPendingOperation(
   operation: CloudPendingOperation,
   localStatus: "open" | "completed",
-  desiredStatus: "open" | "completed",
+  desiredStatus: "open" | "completed" | null,
 ):
   | "already_applied"
   | "stale_server_version"
   | "local_status_changed"
   | "write" {
-  if (localStatus === desiredStatus) {
+  if (desiredStatus !== null && localStatus === desiredStatus) {
     return "already_applied";
   }
   if (
@@ -602,7 +620,7 @@ export function classifyPendingOperation(
 function toLocalOperation(
   operation: CloudPendingOperation,
   task: ObsidianSnapshotTask,
-  desiredStatus: "open" | "completed",
+  desiredStatus: "open" | "completed" | null,
 ): PendingMutationOperation {
   return {
     id: operation.operation_id,
@@ -610,7 +628,7 @@ function toLocalOperation(
     task: {
       id: operation.task_id,
       title: task.title,
-      status: desiredStatus,
+      status: desiredStatus ?? "deleted",
       priority: task.priority,
       labels: task.labels,
       dueAt: task.dueAt,
@@ -619,7 +637,12 @@ function toLocalOperation(
   };
 }
 
-function appliedResolution(operation: CloudPendingOperation): {
+function appliedResolution(
+  operation: CloudPendingOperation,
+  reason = operation.operation_type === "delete"
+    ? "task_deleted"
+    : "status_applied",
+): {
   operation_id: string;
   status: "applied";
   result: Record<string, unknown>;
@@ -627,7 +650,7 @@ function appliedResolution(operation: CloudPendingOperation): {
   return {
     operation_id: operation.operation_id,
     status: "applied",
-    result: { reason: "status_applied" },
+    result: { reason },
   };
 }
 
