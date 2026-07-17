@@ -6,6 +6,7 @@ import {
 
 import type {
   DailyNoteSettings,
+  BridgeStatus,
   DainvoPluginSettings,
   ObsidianSnapshotPayload,
   PairResult,
@@ -21,7 +22,10 @@ const PREFERRED_BRIDGE_BASE_URLS = [
 ] as const;
 
 export class DainvoBridgeClient {
-  constructor(private readonly getSettings: () => DainvoPluginSettings) {}
+  constructor(
+    private readonly getSettings: () => DainvoPluginSettings,
+    private readonly getBearerToken: () => string,
+  ) {}
 
   async pair(input: {
     pairingCode: string;
@@ -55,6 +59,17 @@ export class DainvoBridgeClient {
     );
 
     await parseJsonResponse<unknown>(response);
+  }
+
+  async getStatus(): Promise<BridgeStatus> {
+    const response = await this.fetchWithBridgeFailover(
+      "/obsidian/v1/status",
+      {
+        method: "GET",
+        headers: this.authHeaders(),
+      },
+    );
+    return parseJsonResponse<BridgeStatus>(response);
   }
 
   async listOperations(): Promise<PendingOperation[]> {
@@ -131,7 +146,7 @@ export class DainvoBridgeClient {
   }
 
   private authHeaders(): Record<string, string> {
-    const token = this.getSettings().bearerToken.trim();
+    const token = this.getBearerToken().trim();
 
     if (!token) {
       throw new Error("Dainvo bridge is not paired.");

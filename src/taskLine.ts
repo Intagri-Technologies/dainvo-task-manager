@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
-
 import type { PendingMutationOperation } from "./types";
+import { sha256 } from "./sha256";
 
 export type ParsedTaskLine = {
   title: string;
@@ -231,8 +230,4 @@ function sanitizeTag(label: string): string {
 
 function normalizeLineEndings(line: string): string {
   return line.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-}
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }

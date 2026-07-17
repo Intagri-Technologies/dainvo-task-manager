@@ -1,9 +1,7 @@
-import { createHash } from "node:crypto";
-import path from "node:path";
-
 import { buildOpenUri } from "./openUri";
+import { sha256 } from "./sha256";
 import { parseTaskLine } from "./taskLine";
-import type { ObsidianSnapshotTask } from "./types";
+import type { ObsidianSnapshotTask, ParsedTaskCandidate } from "./types";
 
 export { buildOpenUri } from "./openUri";
 export { hashTaskLine } from "./taskLine";
@@ -20,11 +18,63 @@ export function parseMarkdownTasks(
 ): ObsidianSnapshotTask[] {
   const notePath = normalizeNotePath(input.notePath);
   const lines = input.content.split(/\r?\n/);
-  const noteTitle = path.basename(notePath, path.extname(notePath));
+  const noteTitle = notePath.split("/").pop()?.replace(/\.md$/i, "") ?? notePath;
   const tasks: ObsidianSnapshotTask[] = [];
+  for (const candidate of findTaskCandidates(input.content)) {
+    const parsed = candidate.parsed;
+    tasks.push({
+      ...parsed,
+      providerTaskId: buildProviderTaskId({
+        vaultId: input.vaultId,
+        notePath,
+        lineNumber: candidate.lineNumber,
+        blockId: parsed.blockId,
+      }),
+      notePath,
+      noteTitle,
+      heading: candidate.heading,
+      lineNumber: candidate.lineNumber,
+      openUri: buildOpenUri(input.vaultName, notePath, parsed.blockId),
+    });
+  }
+
+  return tasks;
+}
+
+export function findTaskCandidates(content: string): ParsedTaskCandidate[] {
+  const lines = content.split(/\r?\n/);
+  const tasks: ParsedTaskCandidate[] = [];
   let heading: string | null = null;
+  let inFrontmatter = lines[0]?.trim() === "---";
+  let inFence = false;
+  let fenceMarker = "";
 
   lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (inFrontmatter) {
+      if (index > 0 && (trimmed === "---" || trimmed === "...")) {
+        inFrontmatter = false;
+      }
+      return;
+    }
+
+    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1]?.[0] ?? "";
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = marker;
+      } else if (marker === fenceMarker) {
+        inFence = false;
+        fenceMarker = "";
+      }
+      return;
+    }
+
+    if (inFence) {
+      return;
+    }
+
     const headingMatch = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
     if (headingMatch) {
       heading = headingMatch[2]?.trim() || null;
@@ -37,25 +87,17 @@ export function parseMarkdownTasks(
     }
 
     tasks.push({
-      ...parsed,
-      providerTaskId: buildProviderTaskId({
-        vaultId: input.vaultId,
-        notePath,
-        lineNumber: index + 1,
-        blockId: parsed.blockId,
-      }),
-      notePath,
-      noteTitle,
-      heading,
       lineNumber: index + 1,
-      openUri: buildOpenUri(input.vaultName, notePath, parsed.blockId),
+      line,
+      heading,
+      parsed,
     });
   });
 
   return tasks;
 }
 
-function buildProviderTaskId(input: {
+export function buildProviderTaskId(input: {
   vaultId: string;
   notePath: string;
   lineNumber: number;
@@ -68,8 +110,4 @@ function buildProviderTaskId(input: {
 
 function normalizeNotePath(notePath: string): string {
   return notePath.replace(/\\/g, "/").replace(/^\/+/, "");
-}
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }

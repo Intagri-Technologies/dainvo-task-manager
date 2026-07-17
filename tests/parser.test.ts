@@ -121,6 +121,35 @@ describe("parseMarkdownTasks", () => {
     ]);
   });
 
+  it("ignores frontmatter and fenced-code task examples", () => {
+    const tasks = parseMarkdownTasks({
+      vaultId: "vault-safe",
+      vaultName: "Safe",
+      notePath: "Examples.md",
+      content: [
+        "---",
+        "example: '- [ ] Not a real task'",
+        "---",
+        "# Real work",
+        "```markdown",
+        "- [ ] Example inside code",
+        "```",
+        "~~~",
+        "- [x] Another example",
+        "~~~",
+        "> - [ ] Quoted example",
+        "- [ ] Actual task",
+      ].join("\n"),
+    });
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({
+      title: "Actual task",
+      heading: "Real work",
+      lineNumber: 12,
+    });
+  });
+
   it("percent-encodes spaces in Obsidian open URIs", () => {
     const openUri = buildOpenUri(
       "Work Vault",

@@ -25,6 +25,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
+        env:
+          DAINVO_REQUIRE_CLOUD_CONFIG: "true"
+          DAINVO_SUPABASE_URL: ${{ vars.DAINVO_SUPABASE_URL }}
+          DAINVO_SUPABASE_PUBLISHABLE_KEY: ${{ vars.DAINVO_SUPABASE_PUBLISHABLE_KEY }}
+          DAINVO_OBSIDIAN_OAUTH_CLIENT_ID: ${{ vars.DAINVO_OBSIDIAN_OAUTH_CLIENT_ID }}
+          DAINVO_OBSIDIAN_OAUTH_REDIRECT_URI: https://users.dainvo.com/auth/obsidian-callback
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
@@ -37,8 +43,9 @@ jobs:
           body: |
             Dainvo Task Manager ${{ github.ref_name }}
 
-            - Syncs vault tasks with Dainvo through the local desktop bridge.
-            - Includes pairing, vault task snapshots, Daily Notes settings export, and write-back for existing task lines.
+            - Syncs task projections directly to Dainvo mobile from Obsidian desktop and mobile.
+            - Keeps the local Dainvo desktop bridge independently available on desktop.
+            - Supports stable IDs plus mobile complete/reopen write-back without uploading Markdown bodies or vault files.
           files: |
             main.js
             manifest.json

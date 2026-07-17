@@ -12,7 +12,9 @@ export function resolveVaultIdentity(input: {
   const vaultPath = getVaultBasePath(input.adapter);
 
   return {
-    vaultId: input.currentVaultId || createVaultId(input.vaultName, vaultPath),
+    // Preserve every existing ID, including legacy path-derived IDs. New IDs
+    // are opaque so a filesystem path can never leak through an identifier.
+    vaultId: input.currentVaultId || createVaultId(),
     vaultName: input.vaultName,
     vaultPath,
   };
@@ -23,9 +25,7 @@ function getVaultBasePath(adapter: unknown): string {
     return String(adapter.getBasePath());
   }
 
-  throw new Error(
-    "Dainvo Task Manager requires Obsidian desktop vault access.",
-  );
+  return "";
 }
 
 function hasBasePathAdapter(adapter: unknown): adapter is {
@@ -39,18 +39,10 @@ function hasBasePathAdapter(adapter: unknown): adapter is {
   );
 }
 
-function createVaultId(vaultName: string, vaultPath: string): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function createVaultId(): string {
+  if (typeof globalThis.crypto?.randomUUID !== "function") {
+    throw new Error("Secure random UUID generation is unavailable.");
+  }
 
-  return `obsidian-${slug(vaultName)}-${slug(vaultPath).slice(0, 24)}-${random}`;
-}
-
-function slug(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+  return `obsidian-${globalThis.crypto.randomUUID()}`;
 }

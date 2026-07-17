@@ -1,46 +1,106 @@
 # Dainvo Task Manager
 
-Dainvo Task Manager connects your Obsidian vault to Dainvo, a calendar planner that brings tasks, task integrations, meetings, and daily planning into one focused workspace.
+Dainvo Task Manager connects Obsidian checkbox tasks to Dainvo. Version 1.1.0
+supports Obsidian desktop and mobile and can publish task projections directly
+to Dainvo mobile without requiring Dainvo desktop.
 
 Website: [dainvo.com](https://dainvo.com)
 
-With this plugin, you can keep writing tasks naturally in Obsidian while Dainvo helps you plan when work happens.
+## What you can do
 
-## What You Can Do
+- Keep writing Markdown checkbox tasks naturally in Obsidian.
+- View synced tasks in Dainvo mobile while offline.
+- Complete or reopen a task in Dainvo mobile and apply the checkbox change the
+  next time the selected vault publisher is active.
+- Sync task title, completion, priority, tags, date-only due information, and
+  relative source-note metadata.
+- Keep the existing localhost Dainvo desktop pairing for planning, Daily Notes,
+  and the broader desktop editing workflow.
 
-- Bring Obsidian Markdown checkbox tasks into your Dainvo planner.
-- Plan notes-based tasks alongside your calendar, meetings, and other task sources.
-- Keep task titles, completion status, tags, due dates, and priorities in sync.
-- Ignore blank and metadata-only checkboxes instead of creating placeholder tasks.
-- Use Daily Notes and Obsidian Tasks style metadata naturally.
-- Complete and update supported tasks from Dainvo, with changes reflected in Obsidian.
-- Pair multiple vaults separately so each workspace stays organized.
+Dainvo mobile does not create, rename, move, or delete Obsidian tasks. Those
+changes remain in Obsidian or Dainvo desktop.
 
-## Requirements
+## Direct mobile task sync
 
-- Obsidian desktop.
-- Dainvo desktop app installed on the same computer.
-- A Dainvo account.
+1. Open Obsidian Settings > Dainvo Task Manager.
+2. Under **Dainvo mobile task sync**, choose **Sign in** and finish browser
+   authorization with the same Dainvo account used on your phone.
+3. Select an existing cloud vault mapping or create one for this vault.
+4. Choose a stable-ID mode. **Backfill existing + future tasks** is the default;
+   **New tasks only** leaves existing ID-less tasks unchanged.
+5. Enable sync and wait for **Published**.
 
-## Getting Started
+Only one installation publishes a cloud vault at a time. A newly connected
+installation does not take ownership automatically. If another Obsidian
+installation or Dainvo desktop is selected, sync pauses until you intentionally
+choose **Use this device**.
 
-1. Open the Dainvo desktop app.
-2. Start an Obsidian pairing session in Dainvo.
-3. In Obsidian, open Settings -> Dainvo Task Manager.
-4. Paste the Dainvo bridge URL and pairing code.
-5. Select Pair with Dainvo.
+The publisher sends at most 300 active nonblank tasks and the 700 most recently
+completed nonblank tasks. It checks for queued mobile complete/reopen operations
+every 30 seconds while Obsidian is active. Obsidian desktop continues while open
+or minimized. Obsidian mobile runs while foregrounded and on resume; the mobile
+operating system may suspend Obsidian after it is closed.
 
-Once paired, Dainvo can read supported tasks from your local Obsidian vault and keep your planner up to date. Each vault is paired separately.
+Offline changes are eventual. Dainvo mobile keeps a local task cache and durable
+operation queue. The phone must reconnect to upload a change, and the selected
+vault publisher must later run to update the real Markdown checkbox.
 
-## Privacy and Local Data
+## Stable task IDs
 
-Your vault stays on your computer.
+The plugin uses an existing unique Obsidian block ID when one is present.
+Otherwise it appends an ID such as `^dainvo-550e8400-e29b-41d4-a716-446655440000`
+with Obsidian's atomic vault API. Stable IDs keep a task's cloud identity when a
+line moves within a note or between notes.
 
-- The plugin connects to the Dainvo desktop app running locally on your machine.
-- The plugin does not send vault content to Intagri Technologies servers.
-- Synced task data is shared only with your locally running Dainvo desktop app.
-- Removing the pairing in Obsidian clears the saved Dainvo connection for that vault.
+- **Backfill existing + future tasks** shows the number of affected tasks and
+  asks for confirmation before changing files. The migration is journaled and
+  resumes safely after a restart.
+- **New tasks only** records the current ID-less tasks as a baseline and assigns
+  IDs only to tasks created afterward. A publisher takeover establishes a fresh
+  baseline before watching for new tasks.
+
+The parser does not add IDs in frontmatter, fenced code, non-task examples,
+blank-title tasks, or unsupported lines. Immediately before each atomic edit,
+the plugin re-parses the complete current note so a task moved into an excluded
+region after the initial scan is not changed. If a Dainvo ID was copied, the
+first occurrence keeps it and later occurrences receive new IDs during repair.
+Existing IDs are never removed when the mode changes.
+
+## Optional Dainvo desktop pairing
+
+The localhost bridge remains available on Obsidian desktop and is independent
+from direct mobile task sync:
+
+1. Open Dainvo desktop and start an Obsidian pairing session.
+2. In Obsidian Settings > Dainvo Task Manager, paste the bridge URL and pairing
+   code.
+3. Choose **Pair with Dainvo**.
+
+Bridge and Daily Notes settings are hidden on Obsidian mobile. If a paired older
+Dainvo desktop cannot understand stable-ID aliases, the plugin blocks backfill
+and asks you to update Dainvo desktop or disconnect that local bridge.
+
+## Privacy and account safety
+
+Direct sync is an explicit per-vault opt-in. The relay receives only task
+projections and relative note metadata. It never receives Markdown bodies, raw
+task lines, attachments, full filesystem paths, vault files, bridge secrets,
+OAuth refresh tokens, or account passwords.
+
+OAuth access and refresh tokens, pending PKCE state, the local bridge bearer
+token, and the installation UUID are stored in Obsidian SecretStorage rather
+than `data.json`. Every cloud mapping is scoped to the signed-in Dainvo user.
+Signing out pauses work without silently deleting cloud data; switching accounts
+requires an explicit relink. A revoked or expired refresh grant clears the cloud
+session and pauses as signed out, while network and server failures retain the
+session for retry.
+
+Disabling sync stops publication immediately and requests deletion of the cloud
+copy. If deletion cannot be confirmed, the plugin shows **Disable pending** and
+keeps enough local mapping state to retry.
 
 ## Daily Notes
 
-Dainvo Task Manager works with Obsidian Daily Notes and Periodic Notes settings when available. This helps Dainvo understand where daily tasks belong when you plan or create tasks for a specific day.
+Dainvo Task Manager uses Obsidian Daily Notes and Periodic Notes settings when
+available. Daily Notes integration is part of the optional local desktop bridge;
+it is separate from the direct task relay and does not upload note bodies.
