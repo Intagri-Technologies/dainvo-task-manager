@@ -11,6 +11,7 @@ export type CloudSyncStatus =
   | "paused_plan"
   | "paused_account"
   | "paused_other_publisher"
+  | "paused_vault_replacement"
   | "disable_pending";
 
 export type StableIdMode = "backfill_and_future" | "future_only";
@@ -107,7 +108,7 @@ export type ObsidianSnapshotTask = {
   providerTaskId: string;
   previousProviderTaskId?: string;
   title: string;
-  status: 'open' | 'completed';
+  status: "open" | "completed";
   priority: number;
   labels: string[];
   dueAt: string | null;
@@ -120,7 +121,7 @@ export type ObsidianSnapshotTask = {
   lineHash: string;
   rawTaskLine: string;
   openUri: string;
-  parserFormat: 'markdown' | 'tasks';
+  parserFormat: "markdown" | "tasks";
 };
 
 export type ParsedTaskCandidate = {
@@ -188,6 +189,11 @@ export type CloudPublisherVault = {
   server_version: number;
 };
 
+export type CloudVaultReplacementSummary = {
+  purgedTaskCount: number;
+  discardedOperationCount: number;
+};
+
 export type CloudPendingOperation = {
   id: string;
   operation_id: string;
@@ -217,11 +223,11 @@ export type CloudTaskProjection = {
 
 export type PendingMutationOperation = {
   id: string;
-  operationType: 'update' | 'delete' | 'complete' | 'reopen' | 'move';
+  operationType: "update" | "delete" | "complete" | "reopen" | "move";
   task: {
     id: string;
     title: string;
-    status: 'open' | 'completed' | 'deleted';
+    status: "open" | "completed" | "deleted";
     priority: number;
     labels: string[];
     dueAt: string | null;
@@ -232,22 +238,22 @@ export type PendingMutationOperation = {
 export type PendingOperation = PendingMutationOperation;
 
 export const DEFAULT_SETTINGS: DainvoPluginSettings = {
-  bridgeBaseUrl: '',
-  pairingCode: '',
-  bearerToken: '',
-  accountId: '',
-  vaultId: '',
-  vaultName: '',
-  vaultPath: '',
-  vaultConfigDir: '.obsidian',
-  dailyNoteDateFormat: '',
-  dailyNoteFolder: '',
-  dailyNoteTemplatePath: '',
+  bridgeBaseUrl: "",
+  pairingCode: "",
+  bearerToken: "",
+  accountId: "",
+  vaultId: "",
+  vaultName: "",
+  vaultPath: "",
+  vaultConfigDir: ".obsidian",
+  dailyNoteDateFormat: "",
+  dailyNoteFolder: "",
+  dailyNoteTemplatePath: "",
   dailyNoteSettingsOverrideEnabled: false,
-  dailyNoteSectionHeading: '## Dainvo',
+  dailyNoteSectionHeading: "## Dainvo",
   dailyNoteCreateEnabled: true,
-  lastStatus: 'Not paired',
-  lastSnapshotAt: '',
+  lastStatus: "Not paired",
+  lastSnapshotAt: "",
   cloudSyncEnabled: false,
   cloudStatus: "disabled",
   cloudOwnerUserId: "",

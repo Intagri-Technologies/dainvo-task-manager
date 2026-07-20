@@ -28,15 +28,26 @@ Obsidian or Dainvo desktop.
 1. Open Obsidian Settings > Dainvo Task Manager.
 2. Under **Dainvo mobile task sync**, choose **Sign in** and finish browser
    authorization with the same Dainvo account used on your phone.
-3. Select an existing cloud vault mapping or create one for this vault.
+3. Confirm this physical vault's plugin-owned random vault identity. The plugin
+   never binds the open vault to an arbitrary existing cloud mapping and never
+   infers identity from the vault name.
 4. Choose a stable-ID mode. **Backfill existing + future tasks** is the default;
    **New tasks only** leaves existing ID-less tasks unchanged.
 5. Enable sync and wait for **Published**.
 
-Only one installation publishes a cloud vault at a time. A newly connected
-installation does not take ownership automatically. If another Obsidian
-installation or Dainvo desktop is selected, sync pauses until you intentionally
-choose **Use this device**.
+Only one Obsidian vault can be active for mobile relay on a Dainvo account. If
+another vault is active, enabling this one shows its publisher, last-published
+time, and a short suffix of its random cloud UUID. Replacement proceeds only
+after confirmation and removes the old relay cache and unapplied mobile
+operations without changing either vault's Markdown. Same-name vaults remain
+distinct because names are display labels only.
+
+Only one installation publishes that active cloud vault at a time. A newly
+connected installation with the same stable vault ID does not take ownership
+automatically. If another Obsidian installation or Dainvo desktop is selected,
+sync pauses until you intentionally choose **Use this device**. Takeover changes
+the publisher of the same vault; replacement changes the account's active
+vault.
 
 The publisher sends at most 300 active nonblank tasks and the 700 most recently
 completed nonblank tasks. It advertises complete/reopen/delete support and
@@ -48,6 +59,10 @@ operating system may suspend Obsidian after it is closed.
 Offline changes are eventual. Dainvo mobile keeps a local task cache and durable
 operation queue. The phone must reconnect to upload a change, and the selected
 vault publisher must later run to update the real Markdown checkbox.
+From Dainvo mobile, **Remove from this device** discards that device's cached
+Obsidian tasks and pending mobile changes only. It does not disable this plugin,
+the cloud publisher, or sync on another phone; the device can opt back in later
+and rebuild its cache with a full snapshot.
 
 ## Stable task IDs
 

@@ -9,6 +9,7 @@ import type {
   CloudPendingOperation,
   CloudPublisherVault,
   CloudTaskProjection,
+  CloudVaultReplacementSummary,
   DainvoPluginSettings,
   ObsidianSnapshotTask,
   PendingMutationOperation,
@@ -32,9 +33,11 @@ export type CloudSyncHost = {
 export class ObsidianCloudSyncCoordinator {
   private readonly taskIndex = new Map<string, ObsidianSnapshotTask[]>();
   private readonly dirtyPaths = new Set<string>();
-  private currentRun: Promise<void> | null = null;
+  private currentRun: Promise<CloudVaultReplacementSummary | null> | null =
+    null;
   private queued = false;
   private queuedTakeover = false;
+  private queuedReplaceVaultId = "";
 
   constructor(
     private readonly host: CloudSyncHost,
@@ -52,18 +55,39 @@ export class ObsidianCloudSyncCoordinator {
     return (
       settings.cloudSyncEnabled &&
       settings.cloudStatus === "retryable_error" &&
-      (!settings.cloudRetryAt || Date.parse(settings.cloudRetryAt) <= Date.now())
+      (!settings.cloudRetryAt ||
+        Date.parse(settings.cloudRetryAt) <= Date.now())
     );
   }
 
-  requestSync(input: { takeover?: boolean } = {}): Promise<void> {
+  requestSync(
+    input: {
+      takeover?: boolean;
+      replaceVaultId?: string;
+    } = {},
+  ): Promise<CloudVaultReplacementSummary | null> {
+    if (input.takeover === true && input.replaceVaultId) {
+      return Promise.reject(
+        new CloudRelayError("invalid_publisher_action", 400, false),
+      );
+    }
     if (this.currentRun) {
       this.queued = true;
-      this.queuedTakeover ||= input.takeover === true;
+      if (input.replaceVaultId) {
+        // Replacing the account-wide vault supersedes any queued takeover;
+        // takeover is meaningful only for the same stable vault identity.
+        this.queuedReplaceVaultId = input.replaceVaultId;
+        this.queuedTakeover = false;
+      } else if (!this.queuedReplaceVaultId) {
+        this.queuedTakeover ||= input.takeover === true;
+      }
       return this.currentRun;
     }
 
-    this.currentRun = this.runCoalesced(input.takeover === true).finally(() => {
+    this.currentRun = this.runCoalesced(
+      input.takeover === true,
+      input.replaceVaultId ?? "",
+    ).finally(() => {
       this.currentRun = null;
     });
     return this.currentRun;
@@ -75,6 +99,20 @@ export class ObsidianCloudSyncCoordinator {
       return [];
     }
     return this.cloud.listPublisherVaults();
+  }
+
+  async getVaultReplacementCandidate(): Promise<CloudPublisherVault | null> {
+    const session = await this.oauth.getValidSession();
+    if (!session) {
+      return null;
+    }
+    const activeVault = selectActiveCloudVault(
+      await this.cloud.listPublisherVaults(),
+    );
+    return activeVault &&
+      activeVault.vault_id !== this.host.getSettings().vaultId
+      ? activeVault
+      : null;
   }
 
   async refreshAccessStatus(): Promise<{
@@ -100,6 +138,7 @@ export class ObsidianCloudSyncCoordinator {
 
   async disableAndPurge(): Promise<void> {
     const settings = this.host.getSettings();
+    pinCloudVaultIdentity(settings);
     settings.cloudSyncEnabled = false;
     settings.cloudStatus = "disable_pending";
     settings.cloudLastErrorCode = "";
@@ -150,37 +189,52 @@ export class ObsidianCloudSyncCoordinator {
     await this.host.saveSettings();
   }
 
-  private async runCoalesced(initialTakeover: boolean): Promise<void> {
+  private async runCoalesced(
+    initialTakeover: boolean,
+    initialReplaceVaultId: string,
+  ): Promise<CloudVaultReplacementSummary | null> {
     let takeover = initialTakeover;
+    let replaceVaultId = initialReplaceVaultId;
+    let replacementSummary: CloudVaultReplacementSummary | null = null;
     do {
       this.queued = false;
       try {
-        await this.runCycle(takeover);
+        replacementSummary =
+          (await this.runCycle(takeover, replaceVaultId)) ?? replacementSummary;
       } catch (error) {
         await this.recordFailure(error);
         throw error;
       }
       takeover = this.queuedTakeover;
       this.queuedTakeover = false;
+      replaceVaultId = this.queuedReplaceVaultId;
+      this.queuedReplaceVaultId = "";
     } while (this.queued);
+    return replacementSummary;
   }
 
-  private async runCycle(takeover: boolean): Promise<void> {
+  private async runCycle(
+    takeover: boolean,
+    replaceVaultId: string,
+  ): Promise<CloudVaultReplacementSummary | null> {
     const settings = this.host.getSettings();
     if (!settings.cloudSyncEnabled) {
-      return;
+      return null;
     }
 
     const session = await this.oauth.getValidSession();
     if (!session) {
       settings.cloudStatus = "paused_signed_out";
       await this.host.saveSettings();
-      return;
+      return null;
     }
-    if (settings.cloudOwnerUserId && settings.cloudOwnerUserId !== session.userId) {
+    if (
+      settings.cloudOwnerUserId &&
+      settings.cloudOwnerUserId !== session.userId
+    ) {
       settings.cloudStatus = "paused_account";
       await this.host.saveSettings();
-      return;
+      return null;
     }
     settings.cloudOwnerUserId ||= session.userId;
 
@@ -191,17 +245,33 @@ export class ObsidianCloudSyncCoordinator {
       settings.cloudStatus = "paused_plan";
       settings.cloudLastErrorCode = access.reason;
       await this.host.saveSettings();
-      return;
+      return null;
     }
 
     const deviceId = this.host.getDeviceId();
-    const vaultKey = settings.cloudVaultKey || settings.vaultId;
-    settings.cloudVaultKey = vaultKey;
+    pinCloudVaultIdentity(settings);
+    const vaultKey = settings.vaultId;
     const mappings = await this.cloud.listPublisherVaults();
-    const mapping = mappings.find(
-      (candidate) =>
-        candidate.id === settings.cloudVaultId || candidate.vault_id === vaultKey,
-    );
+    const activeVault = selectActiveCloudVault(mappings);
+
+    if (activeVault && activeVault.vault_id !== vaultKey) {
+      if (!replaceVaultId) {
+        settings.cloudVaultId = "";
+        settings.cloudStatus = "paused_vault_replacement";
+        settings.cloudLastPublishedAt = activeVault.last_published_at ?? "";
+        settings.cloudLastErrorCode = "obsidian_vault_limit_reached";
+        await this.host.saveSettings();
+        return null;
+      }
+      if (replaceVaultId !== activeVault.id) {
+        throw new CloudRelayError("obsidian_active_vault_changed", 409, false);
+      }
+    } else if (replaceVaultId) {
+      throw new CloudRelayError("obsidian_active_vault_changed", 409, false);
+    }
+
+    const mapping =
+      activeVault?.vault_id === vaultKey ? activeVault : undefined;
 
     if (
       mapping &&
@@ -213,19 +283,38 @@ export class ObsidianCloudSyncCoordinator {
       settings.cloudStatus = "paused_other_publisher";
       settings.cloudLastPublishedAt = mapping.last_published_at ?? "";
       await this.host.saveSettings();
-      return;
+      return null;
     }
 
     settings.cloudStatus = "publishing";
     settings.cloudLastErrorCode = "";
     await this.host.saveSettings();
-    const publishedVault = await this.cloud.publishVault({
+    const publishResult = await this.cloud.publishVault({
       vaultId: vaultKey,
       vaultName: settings.vaultName,
       deviceId,
       identityMode: settings.cloudIdentityMode,
       takeover,
+      ...(replaceVaultId ? { replaceVaultId } : {}),
     });
+    const publishedVault = publishResult.vault;
+    if (!publishedVault?.id) {
+      throw new CloudRelayError("obsidian_cloud_vault_id_missing", 500, true);
+    }
+    let replacementSummary: CloudVaultReplacementSummary | null = null;
+    if (replaceVaultId) {
+      if (publishResult.replaced_vault_id !== replaceVaultId) {
+        throw new CloudRelayError("obsidian_active_vault_changed", 409, false);
+      }
+      settings.cloudPublishedDigests = {};
+      settings.cloudOperationJournal = {};
+      settings.cloudOperationBacklog = 0;
+      settings.cloudLastFullSyncAt = "";
+      replacementSummary = {
+        purgedTaskCount: publishResult.purged_task_count ?? 0,
+        discardedOperationCount: publishResult.discarded_operation_count ?? 0,
+      };
+    }
     settings.cloudVaultId = publishedVault.id;
 
     settings.cloudStatus = "normalizing_ids";
@@ -252,7 +341,9 @@ export class ObsidianCloudSyncCoordinator {
     await this.refreshTaskIndex(this.needsFullReconciliation());
     await this.publishCurrentSnapshot(deviceId);
 
-    const operations = await this.cloud.listPendingOperations(settings.cloudVaultId);
+    const operations = await this.cloud.listPendingOperations(
+      settings.cloudVaultId,
+    );
     for (const operation of operations) {
       settings.cloudOperationJournal[operation.operation_id] ??= {
         operation,
@@ -287,17 +378,24 @@ export class ObsidianCloudSyncCoordinator {
     settings.cloudRetryAt = "";
     settings.cloudLastErrorCode = "";
     await this.host.saveSettings();
+    return replacementSummary;
   }
 
   private needsFullReconciliation(): boolean {
     const last = Date.parse(this.host.getSettings().cloudLastFullSyncAt);
-    return this.taskIndex.size === 0 || !Number.isFinite(last) || Date.now() - last >= FULL_RECONCILIATION_MS;
+    return (
+      this.taskIndex.size === 0 ||
+      !Number.isFinite(last) ||
+      Date.now() - last >= FULL_RECONCILIATION_MS
+    );
   }
 
   private async refreshTaskIndex(forceFull: boolean): Promise<void> {
     const settings = this.host.getSettings();
     const markdownFiles = this.host.vault.getMarkdownFiles();
-    const currentPaths = new Set(markdownFiles.map((file) => normalizePath(file.path)));
+    const currentPaths = new Set(
+      markdownFiles.map((file) => normalizePath(file.path)),
+    );
 
     if (forceFull) {
       this.taskIndex.clear();
@@ -359,7 +457,8 @@ export class ObsidianCloudSyncCoordinator {
       const digest = projectionDigest(projection);
       nextDigests[projection.provider_task_id] = digest;
       if (
-        settings.cloudPublishedDigests[projection.provider_task_id] !== digest ||
+        settings.cloudPublishedDigests[projection.provider_task_id] !==
+          digest ||
         projection.previous_provider_task_id
       ) {
         upserts.push(projection);
@@ -537,6 +636,11 @@ export class ObsidianCloudSyncCoordinator {
       settings.cloudStatus = "paused_plan";
     } else if (code === "not_publisher") {
       settings.cloudStatus = "paused_other_publisher";
+    } else if (
+      code === "obsidian_vault_limit_reached" ||
+      code === "obsidian_active_vault_changed"
+    ) {
+      settings.cloudStatus = "paused_vault_replacement";
     } else {
       settings.cloudStatus = "retryable_error";
       settings.cloudRetryAttempt += 1;
@@ -673,15 +777,15 @@ function compareTaskPosition(
 function isMarkdownFile(file: unknown): file is TFile {
   return Boolean(
     file &&
-      typeof file === "object" &&
-      "extension" in file &&
-      (file as { extension?: unknown }).extension === "md",
+    typeof file === "object" &&
+    "extension" in file &&
+    (file as { extension?: unknown }).extension === "md",
   );
 }
 
 function clearCloudMapping(settings: DainvoPluginSettings): void {
   settings.cloudVaultId = "";
-  settings.cloudVaultKey = "";
+  settings.cloudVaultKey = settings.vaultId;
   settings.cloudPublishedDigests = {};
   settings.cloudOperationJournal = {};
   settings.cloudOperationBacklog = 0;
@@ -692,6 +796,58 @@ function clearCloudMapping(settings: DainvoPluginSettings): void {
   settings.cloudLastErrorCode = "";
 }
 
+function pinCloudVaultIdentity(settings: DainvoPluginSettings): void {
+  if (settings.cloudVaultKey === settings.vaultId) {
+    return;
+  }
+  settings.cloudVaultKey = settings.vaultId;
+  settings.cloudVaultId = "";
+  settings.cloudPublishedDigests = {};
+  settings.cloudOperationJournal = {};
+  settings.cloudOperationBacklog = 0;
+  settings.cloudLastPublishedAt = "";
+  settings.cloudLastFullSyncAt = "";
+}
+
+export function selectActiveCloudVault(
+  vaults: readonly CloudPublisherVault[],
+): CloudPublisherVault | null {
+  return (
+    vaults
+      .filter((vault) => vault.sync_enabled)
+      .slice()
+      .sort((left, right) => {
+        const publishedOrder = compareNullableIsoDesc(
+          left.last_published_at,
+          right.last_published_at,
+        );
+        if (publishedOrder !== 0) {
+          return publishedOrder;
+        }
+        if (left.server_version !== right.server_version) {
+          return right.server_version - left.server_version;
+        }
+        return right.id.localeCompare(left.id);
+      })[0] ?? null
+  );
+}
+
+function compareNullableIsoDesc(
+  left: string | null,
+  right: string | null,
+): number {
+  if (left === right) {
+    return 0;
+  }
+  if (left === null) {
+    return 1;
+  }
+  if (right === null) {
+    return -1;
+  }
+  return right.localeCompare(left);
+}
+
 function safeErrorCode(error: unknown): string {
   if (error instanceof CloudRelayError) {
     return error.code;
@@ -700,7 +856,10 @@ function safeErrorCode(error: unknown): string {
     return error.code;
   }
   if (error instanceof Error) {
-    const normalized = error.message.trim().toLowerCase().replace(/[^a-z0-9_ -]+/g, "");
+    const normalized = error.message
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_ -]+/g, "");
     return normalized.replace(/\s+/g, "_").slice(0, 120) || "unknown_error";
   }
   return "unknown_error";

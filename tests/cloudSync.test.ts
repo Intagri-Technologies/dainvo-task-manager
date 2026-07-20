@@ -7,11 +7,16 @@ vi.mock("obsidian", () => ({
 
 let classifyPendingOperation: typeof import("../src/cloudSync").classifyPendingOperation;
 let selectRelayTasks: typeof import("../src/cloudSync").selectRelayTasks;
+let selectActiveCloudVault: typeof import("../src/cloudSync").selectActiveCloudVault;
+let ObsidianCloudSyncCoordinator: typeof import("../src/cloudSync").ObsidianCloudSyncCoordinator;
 
 beforeAll(async () => {
-  ({ classifyPendingOperation, selectRelayTasks } = await import(
-    "../src/cloudSync"
-  ));
+  ({
+    classifyPendingOperation,
+    selectRelayTasks,
+    selectActiveCloudVault,
+    ObsidianCloudSyncCoordinator,
+  } = await import("../src/cloudSync"));
 });
 
 const operation = {
@@ -28,9 +33,9 @@ const operation = {
 
 describe("cloud pending-operation conflict handling", () => {
   it("treats an already matching local status as applied", () => {
-    expect(
-      classifyPendingOperation(operation, "completed", "completed"),
-    ).toBe("already_applied");
+    expect(classifyPendingOperation(operation, "completed", "completed")).toBe(
+      "already_applied",
+    );
   });
 
   it("rejects stale and missing base versions when status differs", () => {
@@ -51,9 +56,9 @@ describe("cloud pending-operation conflict handling", () => {
   });
 
   it("conflicts when Markdown changed locally after the server projection", () => {
-    expect(
-      classifyPendingOperation(operation, "completed", "open"),
-    ).toBe("local_status_changed");
+    expect(classifyPendingOperation(operation, "completed", "open")).toBe(
+      "local_status_changed",
+    );
   });
 
   it("allows a write only when server and local state still agree", () => {
@@ -103,6 +108,52 @@ describe("relay task window selection", () => {
   });
 });
 
+describe("account-wide cloud vault selection", () => {
+  it("uses stable IDs and deterministic server ranking for same-name vaults", () => {
+    const base = {
+      vault_name: "Notes",
+      publisher_device_id: "device",
+      publisher_kind: "obsidian_plugin" as const,
+      identity_mode: "backfill_and_future" as const,
+      sync_enabled: true,
+      connection_status: "online" as const,
+      last_published_at: "2026-07-20T10:00:00.000Z",
+    };
+    const selected = selectActiveCloudVault([
+      { ...base, id: "cloud-a", vault_id: "stable-a", server_version: 3 },
+      { ...base, id: "cloud-b", vault_id: "stable-b", server_version: 4 },
+      {
+        ...base,
+        id: "cloud-disabled",
+        vault_id: "stable-disabled",
+        sync_enabled: false,
+        last_published_at: "2026-07-20T12:00:00.000Z",
+        server_version: 99,
+      },
+    ]);
+
+    expect(selected).toEqual(
+      expect.objectContaining({ id: "cloud-b", vault_id: "stable-b" }),
+    );
+  });
+
+  it("keeps same-vault takeover separate from account-vault replacement", async () => {
+    const coordinator = new ObsidianCloudSyncCoordinator(
+      null as never,
+      null as never,
+      null as never,
+      null as never,
+    );
+
+    await expect(
+      coordinator.requestSync({
+        takeover: true,
+        replaceVaultId: "956c6b9e-b46a-4b85-bf76-4f4361f1b219",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_publisher_action" });
+  });
+});
+
 function relayTask(
   providerTaskId: string,
   notePath: string,
@@ -115,8 +166,7 @@ function relayTask(
     priority: 4,
     labels: [],
     dueAt: null,
-    completedAt:
-      status === "completed" ? "2026-07-17T00:00:00.000Z" : null,
+    completedAt: status === "completed" ? "2026-07-17T00:00:00.000Z" : null,
     notePath,
     noteTitle: notePath,
     heading: null,

@@ -25,12 +25,9 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
   private renderCloudSettings(): void {
     const { containerEl } = this;
     const settings = this.plugin.settings;
-    new Setting(containerEl)
-      .setName("Dainvo mobile task sync")
-      .setHeading();
+    new Setting(containerEl).setName("Dainvo mobile task sync").setHeading();
     containerEl.createEl("p", {
-      text:
-        "Sync task fields through Dainvo so they remain available offline in Dainvo mobile. Vault files, Markdown bodies, raw task lines, attachments, and full filesystem paths are never uploaded.",
+      text: "Sync task fields through Dainvo so they remain available offline in Dainvo mobile. Vault files, Markdown bodies, raw task lines, attachments, and full filesystem paths are never uploaded.",
     });
     containerEl.createEl("p", {
       cls: "dainvo-task-manager-status",
@@ -59,7 +56,9 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
     }
 
     new Setting(containerEl)
-      .setName(this.plugin.isCloudSignedIn() ? "Dainvo account" : "Sign in to Dainvo")
+      .setName(
+        this.plugin.isCloudSignedIn() ? "Dainvo account" : "Sign in to Dainvo",
+      )
       .setDesc(
         this.plugin.isCloudSignedIn()
           ? `Signed in as ${this.plugin.cloudSignedInAccountLabel()}. Signing out pauses this vault without deleting its cloud copy.`
@@ -83,7 +82,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
       );
 
     if (this.plugin.isCloudSignedIn()) {
-      this.renderCloudVaultPicker();
+      this.renderPinnedCloudVault();
     }
 
     const candidateStatus = containerEl.createEl("p", {
@@ -99,7 +98,9 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
             : `Stable task IDs: ${count} existing task${count === 1 ? "" : "s"} can be normalized.`,
         );
       })
-      .catch(() => candidateStatus.setText("Stable task IDs: scan unavailable."));
+      .catch(() =>
+        candidateStatus.setText("Stable task IDs: scan unavailable."),
+      );
 
     new Setting(containerEl)
       .setName("Stable-ID mode")
@@ -134,7 +135,11 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName(settings.cloudSyncEnabled ? "Mobile task sync enabled" : "Sync tasks to Dainvo mobile")
+      .setName(
+        settings.cloudSyncEnabled
+          ? "Mobile task sync enabled"
+          : "Sync tasks to Dainvo mobile",
+      )
       .setDesc(
         settings.cloudSyncEnabled
           ? "The selected publisher relays task projections and applies queued complete/reopen actions."
@@ -154,21 +159,18 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           });
           return;
         }
-        button.setButtonText("Enable").setCta().onClick(async () => {
-          try {
-            if (settings.cloudIdentityMode === "backfill_and_future") {
-              const count = await this.plugin.countStableIdBackfillCandidates();
-              if (count > 0 && !(await confirmBackfill(this.plugin, count))) {
-                return;
-              }
+        button
+          .setButtonText("Enable")
+          .setCta()
+          .onClick(async () => {
+            try {
+              await this.enableCloudSyncWithConfirmation();
+              this.render();
+            } catch (error) {
+              new Notice(formatError(error));
+              this.render();
             }
-            await this.plugin.enableCloudSync();
-            this.render();
-          } catch (error) {
-            new Notice(formatError(error));
-            this.render();
-          }
-        });
+          });
       });
 
     if (settings.cloudStatus === "paused_other_publisher") {
@@ -178,34 +180,64 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           "Takeover is never automatic. This stops two Obsidian installations or Dainvo desktop from competing over Markdown writes.",
         )
         .addButton((button) =>
-          button.setButtonText("Use this device").setWarning().onClick(async () => {
-            if (!(await confirmPublisherTakeover(this.plugin))) {
-              return;
-            }
-            try {
-              await this.plugin.useThisDeviceAsPublisher();
-              this.render();
-            } catch (error) {
-              new Notice(formatError(error));
-              this.render();
-            }
-          }),
+          button
+            .setButtonText("Use this device")
+            .setWarning()
+            .onClick(async () => {
+              if (!(await confirmPublisherTakeover(this.plugin))) {
+                return;
+              }
+              try {
+                await this.plugin.useThisDeviceAsPublisher();
+                this.render();
+              } catch (error) {
+                new Notice(formatError(error));
+                this.render();
+              }
+            }),
+        );
+    }
+
+    if (settings.cloudStatus === "paused_vault_replacement") {
+      new Setting(containerEl)
+        .setName("Another Obsidian vault is synced")
+        .setDesc(
+          "A Dainvo account can sync one Obsidian vault to mobile. Replacing it is explicit and never uses the vault name as identity.",
+        )
+        .addButton((button) =>
+          button
+            .setButtonText("Replace with this vault")
+            .setWarning()
+            .onClick(async () => {
+              try {
+                await this.enableCloudSyncWithConfirmation();
+                this.render();
+              } catch (error) {
+                new Notice(formatError(error));
+                this.render();
+              }
+            }),
         );
     }
 
     if (settings.cloudStatus === "paused_account") {
       new Setting(containerEl)
         .setName("This vault is linked to another Dainvo account")
-        .setDesc("Relinking is explicit so one user's cloud mapping can never be inherited by another user.")
+        .setDesc(
+          "Relinking is explicit so one user's cloud mapping can never be inherited by another user.",
+        )
         .addButton((button) =>
-          button.setButtonText("Relink to signed-in account").setWarning().onClick(async () => {
-            try {
-              await this.plugin.relinkCloudAccount();
-              this.render();
-            } catch (error) {
-              new Notice(formatError(error));
-            }
-          }),
+          button
+            .setButtonText("Relink to signed-in account")
+            .setWarning()
+            .onClick(async () => {
+              try {
+                await this.plugin.relinkCloudAccount();
+                this.render();
+              } catch (error) {
+                new Notice(formatError(error));
+              }
+            }),
         );
     }
 
@@ -235,25 +267,31 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
         );
     }
 
-    if (settings.cloudSyncEnabled || settings.cloudStatus === "disable_pending") {
+    if (
+      settings.cloudSyncEnabled ||
+      settings.cloudStatus === "disable_pending"
+    ) {
       new Setting(containerEl)
         .setName("Disable and delete cloud copy")
         .setDesc(
           "Publishing stops immediately. If cloud deletion cannot be confirmed, the status remains Disable pending so you can retry.",
         )
         .addButton((button) =>
-          button.setButtonText("Disable and delete").setWarning().onClick(async () => {
-            if (!(await confirmDisable(this.plugin))) {
-              return;
-            }
-            try {
-              await this.plugin.disableCloudSync();
-              this.render();
-            } catch (error) {
-              new Notice(formatError(error));
-              this.render();
-            }
-          }),
+          button
+            .setButtonText("Disable and delete")
+            .setWarning()
+            .onClick(async () => {
+              if (!(await confirmDisable(this.plugin))) {
+                return;
+              }
+              try {
+                await this.plugin.disableCloudSync();
+                this.render();
+              } catch (error) {
+                new Notice(formatError(error));
+                this.render();
+              }
+            }),
         );
     }
 
@@ -266,62 +304,72 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
     if (settings.cloudStatus === "paused_plan") {
       new Setting(containerEl)
         .setName("Mobile task sync requires an eligible plan")
-        .setDesc("Cached mobile tasks remain readable, but new relay work is paused.")
+        .setDesc(
+          "Cached mobile tasks remain readable, but new relay work is paused.",
+        )
         .addButton((button) =>
           button.setButtonText("View plans").onClick(() => {
-            window.open("https://dainvo.com/pricing", "_blank", "noopener,noreferrer");
+            window.open(
+              "https://dainvo.com/pricing",
+              "_blank",
+              "noopener,noreferrer",
+            );
           }),
         );
     }
   }
 
-  private renderCloudVaultPicker(): void {
-    const setting = new Setting(this.containerEl)
-      .setName("Cloud vault mapping")
+  private renderPinnedCloudVault(): void {
+    new Setting(this.containerEl)
+      .setName("Mobile sync source vault")
       .setDesc(
-        "Choose an existing mapping or create one for this vault. Selecting an existing mapping never takes publisher ownership automatically.",
+        `${this.plugin.settings.vaultName}. This installation publishes only the open vault's persistent identity. Vault names are display labels and are never merged.`,
       );
-    setting.addDropdown((dropdown) => {
-      dropdown.addOption("__new__", "Create mapping for this vault");
-      dropdown.setValue(this.plugin.settings.cloudVaultId || "__new__");
-      const vaultsById = new Map<string, CloudPublisherVault>();
-      dropdown.onChange(async (value) => {
-        try {
-          await this.plugin.selectCloudVault(
-            value === "__new__" ? null : (vaultsById.get(value) ?? null),
-          );
-          this.render();
-        } catch (error) {
-          new Notice(formatError(error));
-        }
-      });
+  }
 
-      void this.plugin
-        .listCloudVaults()
-        .then((vaults) => {
-          for (const vault of vaults) {
-            vaultsById.set(vault.id, vault);
-            dropdown.addOption(
-              vault.id,
-              `${vault.vault_name} · ${vault.publisher_kind === "obsidian_plugin" ? "Obsidian plugin" : "Dainvo desktop"}`,
-            );
-          }
-          dropdown.setValue(this.plugin.settings.cloudVaultId || "__new__");
-        })
-        .catch(() => undefined);
-    });
+  private async enableCloudSyncWithConfirmation(): Promise<void> {
+    const settings = this.plugin.settings;
+    if (settings.cloudIdentityMode === "backfill_and_future") {
+      const count = await this.plugin.countStableIdBackfillCandidates();
+      if (count > 0 && !(await confirmBackfill(this.plugin, count))) {
+        return;
+      }
+    }
+
+    const candidate = await this.plugin.getVaultReplacementCandidate();
+    if (
+      candidate &&
+      !(await confirmVaultReplacement(
+        this.plugin,
+        candidate,
+        settings.vaultName,
+      ))
+    ) {
+      return;
+    }
+
+    const replacement = await this.plugin.enableCloudSync(candidate?.id);
+    if (replacement) {
+      new Notice(
+        `Mobile sync now uses ${settings.vaultName}. Removed relay data for the previous vault (${replacement.purgedTaskCount} tasks; ${replacement.discardedOperationCount} waiting mobile changes).`,
+      );
+    }
   }
 
   private renderDesktopBridgeSettings(): void {
     const { containerEl } = this;
-    new Setting(containerEl).setName("Local Dainvo desktop bridge").setHeading();
+    new Setting(containerEl)
+      .setName("Local Dainvo desktop bridge")
+      .setHeading();
     containerEl.createEl("p", {
       cls: "dainvo-task-manager-status",
       text: `Status: ${this.plugin.settings.lastStatus}`,
     });
     new Setting(containerEl)
       .setName("Dainvo bridge URL")
-      .setDesc("Use the URL shown by Dainvo desktop when starting Obsidian pairing.")
+      .setDesc(
+        "Use the URL shown by Dainvo desktop when starting Obsidian pairing.",
+      )
       .addText((text) =>
         text
           .setPlaceholder("http://127.0.0.1:58234")
@@ -345,10 +393,14 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
       );
     new Setting(containerEl)
       .setName("Desktop pairing")
-      .setDesc("The vault-specific bridge bearer token is stored in Obsidian SecretStorage.")
+      .setDesc(
+        "The vault-specific bridge bearer token is stored in Obsidian SecretStorage.",
+      )
       .addButton((button) =>
         button
-          .setButtonText(this.plugin.hasDesktopBridgePairing() ? "Re-pair" : "Pair")
+          .setButtonText(
+            this.plugin.hasDesktopBridgePairing() ? "Re-pair" : "Pair",
+          )
           .setCta()
           .onClick(async () => {
             try {
@@ -392,7 +444,8 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
   private renderDailyNoteSettings(): void {
     const { containerEl } = this;
     new Setting(containerEl).setName("Daily Notes task creation").setHeading();
-    const overrideEnabled = this.plugin.settings.dailyNoteSettingsOverrideEnabled;
+    const overrideEnabled =
+      this.plugin.settings.dailyNoteSettingsOverrideEnabled;
     const status = containerEl.createEl("p", {
       cls: "dainvo-task-manager-status",
       text: "Daily Notes settings: loading…",
@@ -416,15 +469,15 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
       );
     new Setting(containerEl)
       .setName("Override Obsidian Daily Notes settings")
-      .setDesc("Off uses active Obsidian Daily Notes or Periodic Notes settings.")
+      .setDesc(
+        "Off uses active Obsidian Daily Notes or Periodic Notes settings.",
+      )
       .addToggle((toggle) =>
-        toggle
-          .setValue(overrideEnabled)
-          .onChange(async (value) => {
-            this.plugin.settings.dailyNoteSettingsOverrideEnabled = value;
-            await this.plugin.saveSettings();
-            this.render();
-          }),
+        toggle.setValue(overrideEnabled).onChange(async (value) => {
+          this.plugin.settings.dailyNoteSettingsOverrideEnabled = value;
+          await this.plugin.saveSettings();
+          this.render();
+        }),
       );
     new Setting(containerEl)
       .setName("Copy current Obsidian settings")
@@ -435,53 +488,46 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           this.render();
         }),
       );
-    new Setting(containerEl)
-      .setName("Date format")
-      .addText((text) =>
-        text
-          .setPlaceholder("YYYY-MM-DD")
-          .setDisabled(!overrideEnabled)
-          .setValue(this.plugin.settings.dailyNoteDateFormat)
-          .onChange(async (value) => {
-            this.plugin.settings.dailyNoteDateFormat = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-    new Setting(containerEl)
-      .setName("Folder")
-      .addText((text) =>
-        text
-          .setPlaceholder("Daily")
-          .setDisabled(!overrideEnabled)
-          .setValue(this.plugin.settings.dailyNoteFolder)
-          .onChange(async (value) => {
-            this.plugin.settings.dailyNoteFolder = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-    new Setting(containerEl)
-      .setName("Template path")
-      .addText((text) =>
-        text
-          .setPlaceholder("Templates/Daily.md")
-          .setDisabled(!overrideEnabled)
-          .setValue(this.plugin.settings.dailyNoteTemplatePath)
-          .onChange(async (value) => {
-            this.plugin.settings.dailyNoteTemplatePath = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
-    new Setting(containerEl)
-      .setName("Section heading")
-      .addText((text) =>
-        text
-          .setPlaceholder("## Dainvo")
-          .setValue(this.plugin.settings.dailyNoteSectionHeading)
-          .onChange(async (value) => {
-            this.plugin.settings.dailyNoteSectionHeading = value.trim() || "## Dainvo";
-            await this.plugin.saveSettings();
-          }),
-      );
+    new Setting(containerEl).setName("Date format").addText((text) =>
+      text
+        .setPlaceholder("YYYY-MM-DD")
+        .setDisabled(!overrideEnabled)
+        .setValue(this.plugin.settings.dailyNoteDateFormat)
+        .onChange(async (value) => {
+          this.plugin.settings.dailyNoteDateFormat = value.trim();
+          await this.plugin.saveSettings();
+        }),
+    );
+    new Setting(containerEl).setName("Folder").addText((text) =>
+      text
+        .setPlaceholder("Daily")
+        .setDisabled(!overrideEnabled)
+        .setValue(this.plugin.settings.dailyNoteFolder)
+        .onChange(async (value) => {
+          this.plugin.settings.dailyNoteFolder = value.trim();
+          await this.plugin.saveSettings();
+        }),
+    );
+    new Setting(containerEl).setName("Template path").addText((text) =>
+      text
+        .setPlaceholder("Templates/Daily.md")
+        .setDisabled(!overrideEnabled)
+        .setValue(this.plugin.settings.dailyNoteTemplatePath)
+        .onChange(async (value) => {
+          this.plugin.settings.dailyNoteTemplatePath = value.trim();
+          await this.plugin.saveSettings();
+        }),
+    );
+    new Setting(containerEl).setName("Section heading").addText((text) =>
+      text
+        .setPlaceholder("## Dainvo")
+        .setValue(this.plugin.settings.dailyNoteSectionHeading)
+        .onChange(async (value) => {
+          this.plugin.settings.dailyNoteSectionHeading =
+            value.trim() || "## Dainvo";
+          await this.plugin.saveSettings();
+        }),
+    );
   }
 }
 
@@ -505,6 +551,24 @@ async function confirmPublisherTakeover(
     "Use this device as publisher?",
     "The current desktop or Obsidian publisher will pause. Only this installation will insert stable IDs and apply mobile complete/reopen actions.",
     "Use this device",
+  );
+}
+
+async function confirmVaultReplacement(
+  plugin: DainvoTaskManagerPlugin,
+  activeVault: CloudPublisherVault,
+  nextVaultName: string,
+): Promise<boolean> {
+  const publisher =
+    activeVault.publisher_kind === "obsidian_plugin"
+      ? "Dainvo Task Manager plugin"
+      : "Dainvo desktop";
+  const lastPublished = activeVault.last_published_at ?? "not yet published";
+  return confirmAction(
+    plugin,
+    "Replace the mobile Obsidian vault?",
+    `${activeVault.vault_name} is currently synced for this Dainvo account (publisher: ${publisher}; last published: ${lastPublished}; vault ID: …${cloudIdSuffix(activeVault.id)}). Replace it with ${nextVaultName}? Relay tasks and waiting mobile changes for the current vault will be removed. Its Markdown and files stay untouched.`,
+    "Replace vault",
   );
 }
 
@@ -593,9 +657,14 @@ function cloudStatusText(status: string): string {
     paused_plan: "Paused: plan does not include mobile sync",
     paused_account: "Paused: linked account differs",
     paused_other_publisher: "Paused: another vault publisher is selected",
+    paused_vault_replacement: "Paused: another Obsidian vault is synced",
     disable_pending: "Disable pending: cloud deletion not yet confirmed",
   };
   return labels[status] ?? status;
+}
+
+function cloudIdSuffix(cloudVaultId: string): string {
+  return cloudVaultId.replaceAll("-", "").slice(-8);
 }
 
 function formatError(error: unknown): string {

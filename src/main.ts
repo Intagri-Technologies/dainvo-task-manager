@@ -23,6 +23,7 @@ import { StableIdCoordinator } from "./stableIds";
 import {
   DEFAULT_SETTINGS,
   type CloudPublisherVault,
+  type CloudVaultReplacementSummary,
   type DailyNoteSettings,
   type DainvoPluginSettings,
   type StableIdMode,
@@ -245,14 +246,16 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     await this.saveSettings();
   }
 
-  async enableCloudSync(): Promise<void> {
+  async enableCloudSync(
+    replaceVaultId?: string,
+  ): Promise<CloudVaultReplacementSummary | null> {
     this.settings.cloudSyncEnabled = true;
-    this.settings.cloudVaultKey ||= this.settings.vaultId;
+    this.settings.cloudVaultKey = this.settings.vaultId;
     this.settings.cloudStatus = this.secureStore.getCloudSession()
       ? "publishing"
       : "paused_signed_out";
     await this.saveSettings();
-    await this.cloudCoordinator.requestSync();
+    return this.cloudCoordinator.requestSync({ replaceVaultId });
   }
 
   async disableCloudSync(): Promise<void> {
@@ -282,22 +285,16 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     return this.cloudCoordinator.listCloudVaults();
   }
 
+  getVaultReplacementCandidate(): Promise<CloudPublisherVault | null> {
+    return this.cloudCoordinator.getVaultReplacementCandidate();
+  }
+
   refreshCloudAccessStatus(): Promise<{
     allowed: boolean;
     planName: string;
     reason: string;
   }> {
     return this.cloudCoordinator.refreshAccessStatus();
-  }
-
-  async selectCloudVault(vault: CloudPublisherVault | null): Promise<void> {
-    this.settings.cloudVaultId = vault?.id ?? "";
-    this.settings.cloudVaultKey = vault?.vault_id ?? this.settings.vaultId;
-    this.settings.cloudPublishedDigests = {};
-    this.settings.cloudStatus = vault
-      ? "paused_other_publisher"
-      : "disabled";
-    await this.saveSettings();
   }
 
   countStableIdBackfillCandidates(): Promise<number> {
@@ -373,7 +370,9 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         dailyNoteSettings: await this.resolveDailyNoteSettings(),
       });
       await this.bridgeClient.postSnapshot(payload);
-      for (const [blockId, alias] of Object.entries(this.settings.identityAliases)) {
+      for (const [blockId, alias] of Object.entries(
+        this.settings.identityAliases,
+      )) {
         if (alias.bridgePending) {
           alias.bridgePending = false;
           if (!alias.cloudPending) {
@@ -643,6 +642,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   }
 
   private async ensureVaultIdentity(): Promise<void> {
+    const previousCloudVaultKey = this.settings.cloudVaultKey;
     const identity = resolveVaultIdentity({
       adapter: this.app.vault.adapter,
       vaultName: this.app.vault.getName(),
@@ -652,6 +652,27 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     this.settings.vaultName = identity.vaultName;
     this.settings.vaultPath = identity.vaultPath;
     this.settings.vaultConfigDir = this.app.vault.configDir || ".obsidian";
+    if (previousCloudVaultKey !== identity.vaultId) {
+      // Legacy plugin builds could bind this physical vault to an arbitrary
+      // cloud mapping. A lost/reset vault ID is also a new logical vault.
+      // Clear that binding and require an explicit account-wide replacement;
+      // never infer identity from the display name or filesystem path.
+      this.settings.cloudVaultId = "";
+      this.settings.cloudPublishedDigests = {};
+      this.settings.cloudOperationJournal = {};
+      this.settings.cloudOperationBacklog = 0;
+      this.settings.cloudLastPublishedAt = "";
+      this.settings.cloudLastFullSyncAt = "";
+      this.settings.cloudRetryAttempt = 0;
+      this.settings.cloudRetryAt = "";
+      this.settings.cloudLastErrorCode = this.settings.cloudSyncEnabled
+        ? "obsidian_vault_limit_reached"
+        : "";
+      if (this.settings.cloudSyncEnabled) {
+        this.settings.cloudStatus = "paused_vault_replacement";
+      }
+    }
+    this.settings.cloudVaultKey = identity.vaultId;
     await this.saveSettings();
   }
 }
@@ -675,7 +696,9 @@ function detectObsidianDailyNoteCapability(): boolean {
 function hasDetectedDailyNoteSettings(
   settings: DetectedDailyNoteSettings,
 ): boolean {
-  return Boolean(settings.dateFormat || settings.folder || settings.templatePath);
+  return Boolean(
+    settings.dateFormat || settings.folder || settings.templatePath,
+  );
 }
 
 function formatError(error: unknown): string {

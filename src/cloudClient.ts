@@ -1,9 +1,6 @@
 import { requestUrl } from "obsidian";
 
-import {
-  assertCloudConfig,
-  type DainvoCloudConfig,
-} from "./runtimeConfig";
+import { assertCloudConfig, type DainvoCloudConfig } from "./runtimeConfig";
 import type { DainvoOAuthClient } from "./oauthClient";
 import type {
   CloudPendingOperation,
@@ -12,6 +9,14 @@ import type {
   CloudTaskProjection,
   StableIdMode,
 } from "./types";
+
+export type CloudPublishVaultResult = {
+  vault: CloudPublisherVault;
+  active_vault_id?: string | null;
+  replaced_vault_id?: string | null;
+  purged_task_count?: number;
+  discarded_operation_count?: number;
+};
 
 export class CloudRelayError extends Error {
   constructor(
@@ -46,22 +51,22 @@ export class DainvoCloudClient {
     deviceId: string;
     identityMode: StableIdMode;
     takeover: boolean;
-  }): Promise<CloudPublisherVault> {
-    const result = await this.rpc<{ vault: CloudPublisherVault }>(
-      "publish_my_obsidian_vault_v1",
-      {
-        p_vault: {
-          vault_id: input.vaultId,
-          vault_name: input.vaultName,
-          device_id: input.deviceId,
-          publisher_kind: "obsidian_plugin",
-          identity_mode: input.identityMode,
-          operation_capabilities: ["complete", "reopen", "delete"],
-          takeover: input.takeover,
-        },
+    replaceVaultId?: string;
+  }): Promise<CloudPublishVaultResult> {
+    return this.rpc<CloudPublishVaultResult>("publish_my_obsidian_vault_v1", {
+      p_vault: {
+        vault_id: input.vaultId,
+        vault_name: input.vaultName,
+        device_id: input.deviceId,
+        publisher_kind: "obsidian_plugin",
+        identity_mode: input.identityMode,
+        operation_capabilities: ["complete", "reopen", "delete"],
+        takeover: input.takeover,
+        ...(input.replaceVaultId
+          ? { replace_vault_id: input.replaceVaultId }
+          : {}),
       },
-    );
-    return result.vault;
+    });
   }
 
   pushSnapshot(input: {
@@ -87,7 +92,9 @@ export class DainvoCloudClient {
     });
   }
 
-  async listPendingOperations(cloudVaultId: string): Promise<CloudPendingOperation[]> {
+  async listPendingOperations(
+    cloudVaultId: string,
+  ): Promise<CloudPendingOperation[]> {
     const result = await this.rpc<{ operations: CloudPendingOperation[] }>(
       "list_my_obsidian_pending_operations_v1",
       { p_vault_id: cloudVaultId, p_limit: 100 },
@@ -150,7 +157,10 @@ export class DainvoCloudClient {
       throw new CloudRelayError(
         code,
         response.status,
-        response.status === 0 || response.status === 408 || response.status === 429 || response.status >= 500,
+        response.status === 0 ||
+          response.status === 408 ||
+          response.status === 429 ||
+          response.status >= 500,
       );
     }
     return payload as T;
@@ -170,7 +180,10 @@ function relayErrorCode(value: unknown, status: number): string {
     const payload = value as Record<string, unknown>;
     for (const key of ["message", "code", "error"]) {
       const candidate = payload[key];
-      if (typeof candidate === "string" && /^[a-z0-9_ -]{1,120}$/i.test(candidate)) {
+      if (
+        typeof candidate === "string" &&
+        /^[a-z0-9_ -]{1,120}$/i.test(candidate)
+      ) {
         return candidate.trim().toLowerCase().replace(/\s+/g, "_");
       }
     }
