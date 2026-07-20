@@ -149,15 +149,12 @@ export class ObsidianCloudSyncCoordinator {
       if (!session) {
         throw new CloudRelayError("signed_out", 401, false);
       }
-      let cloudVaultId = settings.cloudVaultId;
-      if (!cloudVaultId) {
-        const mapping = (await this.cloud.listPublisherVaults()).find(
-          (vault) => vault.vault_id === settings.cloudVaultKey,
-        );
-        cloudVaultId = mapping?.id ?? "";
-      }
-      if (cloudVaultId) {
-        await this.cloud.disableVault(cloudVaultId);
+      const mapping = selectCloudVaultByStableId(
+        await this.cloud.listPublisherVaults(),
+        settings.vaultId,
+      );
+      if (mapping) {
+        await this.cloud.disableVault(mapping.id);
       }
       clearCloudMapping(settings);
       settings.cloudStatus = "disabled";
@@ -829,6 +826,15 @@ export function selectActiveCloudVault(
         }
         return right.id.localeCompare(left.id);
       })[0] ?? null
+  );
+}
+
+export function selectCloudVaultByStableId(
+  vaults: readonly CloudPublisherVault[],
+  stableVaultId: string,
+): CloudPublisherVault | null {
+  return selectActiveCloudVault(
+    vaults.filter((vault) => vault.vault_id === stableVaultId),
   );
 }
 

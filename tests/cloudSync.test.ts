@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_SETTINGS } from "../src/types";
+
 vi.mock("obsidian", () => ({
   normalizePath: (value: string) => value.replace(/\\/g, "/"),
   requestUrl: vi.fn(),
@@ -8,6 +10,7 @@ vi.mock("obsidian", () => ({
 let classifyPendingOperation: typeof import("../src/cloudSync").classifyPendingOperation;
 let selectRelayTasks: typeof import("../src/cloudSync").selectRelayTasks;
 let selectActiveCloudVault: typeof import("../src/cloudSync").selectActiveCloudVault;
+let selectCloudVaultByStableId: typeof import("../src/cloudSync").selectCloudVaultByStableId;
 let ObsidianCloudSyncCoordinator: typeof import("../src/cloudSync").ObsidianCloudSyncCoordinator;
 
 beforeAll(async () => {
@@ -15,6 +18,7 @@ beforeAll(async () => {
     classifyPendingOperation,
     selectRelayTasks,
     selectActiveCloudVault,
+    selectCloudVaultByStableId,
     ObsidianCloudSyncCoordinator,
   } = await import("../src/cloudSync"));
 });
@@ -151,6 +155,75 @@ describe("account-wide cloud vault selection", () => {
         replaceVaultId: "956c6b9e-b46a-4b85-bf76-4f4361f1b219",
       }),
     ).rejects.toMatchObject({ code: "invalid_publisher_action" });
+  });
+
+  it("resolves disable/purge by stable vault identity instead of a cached cloud UUID", () => {
+    const base = {
+      vault_name: "Notes",
+      publisher_device_id: "device",
+      publisher_kind: "obsidian_plugin" as const,
+      identity_mode: "backfill_and_future" as const,
+      sync_enabled: true,
+      connection_status: "online" as const,
+      last_published_at: "2026-07-20T10:00:00.000Z",
+      server_version: 1,
+    };
+    const vaults = [
+      { ...base, id: "cloud-current", vault_id: "stable-current" },
+      { ...base, id: "cloud-other", vault_id: "stable-other" },
+    ];
+
+    expect(selectCloudVaultByStableId(vaults, "stable-current")?.id).toBe(
+      "cloud-current",
+    );
+    expect(selectCloudVaultByStableId(vaults, "stable-missing")).toBeNull();
+  });
+
+  it("does not purge the active account vault when a legacy cached UUID belongs to another stable vault", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      vaultId: "stable-current",
+      cloudVaultKey: "stable-current",
+      cloudVaultId: "cloud-active-other",
+      cloudSyncEnabled: true,
+      cloudStatus: "published" as const,
+    };
+    const disableVault = vi.fn();
+    const coordinator = new ObsidianCloudSyncCoordinator(
+      {
+        vault: null as never,
+        getSettings: () => settings,
+        saveSettings: vi.fn().mockResolvedValue(undefined),
+        getDeviceId: () => "device",
+        ensureBridgeIdentityAliasSupport: vi.fn().mockResolvedValue(undefined),
+      },
+      { getValidSession: vi.fn().mockResolvedValue({}) } as never,
+      {
+        listPublisherVaults: vi.fn().mockResolvedValue([
+          {
+            id: "cloud-active-other",
+            vault_id: "stable-other",
+            vault_name: "Notes",
+            publisher_device_id: "device",
+            publisher_kind: "obsidian_plugin",
+            identity_mode: "backfill_and_future",
+            sync_enabled: true,
+            connection_status: "online",
+            last_published_at: "2026-07-20T10:00:00.000Z",
+            server_version: 1,
+          },
+        ]),
+        disableVault,
+      } as never,
+      null as never,
+    );
+
+    await coordinator.disableAndPurge();
+
+    expect(disableVault).not.toHaveBeenCalled();
+    expect(settings.cloudSyncEnabled).toBe(false);
+    expect(settings.cloudVaultId).toBe("");
+    expect(settings.cloudStatus).toBe("disabled");
   });
 });
 

@@ -116,7 +116,9 @@ session for retry.
 
 Disabling sync stops publication immediately and requests deletion of the cloud
 copy. If deletion cannot be confirmed, the plugin shows **Disable pending** and
-keeps enough local mapping state to retry.
+keeps enough local mapping state to retry. The plugin resolves that deletion
+from the open vault's persistent stable identity and never purges a different
+vault merely because an older installation cached its cloud UUID.
 
 ## Daily Notes
 
