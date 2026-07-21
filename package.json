@@ -1,6 +1,6 @@
 {
   "name": "dainvo-task-manager",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "Sync Obsidian task projections directly with Dainvo mobile or through Dainvo desktop.",
   "type": "module",
   "main": "main.js",

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.5 - 2026-07-21
+
+### Fixed
+
+- Use a shorter, directory-compliant plugin description.
+
 ## 1.1.4 - 2026-07-20
 
 ### Fixed

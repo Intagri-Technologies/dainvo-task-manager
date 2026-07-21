@@ -1,9 +1,9 @@
 {
   "id": "dainvo-task-manager",
   "name": "Dainvo Task Manager",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "minAppVersion": "1.11.4",
-  "description": "View and update your Obsidian checkbox tasks in Dainvo mobile and desktop.",
+  "description": "View and update checkbox tasks with Dainvo on mobile and desktop.",
   "author": "Intagri Technologies",
   "authorUrl": "https://dainvo.com",
   "isDesktopOnly": false
