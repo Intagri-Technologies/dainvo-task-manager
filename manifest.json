@@ -3,7 +3,7 @@
   "name": "Dainvo Task Manager",
   "version": "1.1.4",
   "minAppVersion": "1.11.4",
-  "description": "Sync vault task projections with Dainvo mobile and the local Dainvo desktop bridge.",
+  "description": "View and update your Obsidian checkbox tasks in Dainvo mobile and desktop.",
   "author": "Intagri Technologies",
   "authorUrl": "https://dainvo.com",
   "isDesktopOnly": false
