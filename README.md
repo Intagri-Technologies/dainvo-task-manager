@@ -1,6 +1,6 @@
 # Dainvo Task Manager
 
-Dainvo Task Manager connects Obsidian checkbox tasks to Dainvo. Version 1.1.2
+Dainvo Task Manager connects Obsidian checkbox tasks to Dainvo. Version 1.1.3
 supports Obsidian desktop and mobile and can publish task projections directly
 to Dainvo mobile without requiring Dainvo desktop.
 
