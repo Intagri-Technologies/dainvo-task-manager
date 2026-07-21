@@ -40,9 +40,9 @@ function hasBasePathAdapter(adapter: unknown): adapter is {
 }
 
 function createVaultId(): string {
-  if (typeof globalThis.crypto?.randomUUID !== "function") {
+  if (typeof activeWindow.crypto?.randomUUID !== "function") {
     throw new Error("Secure random UUID generation is unavailable.");
   }
 
-  return `obsidian-${globalThis.crypto.randomUUID()}`;
+  return `obsidian-${activeWindow.crypto.randomUUID()}`;
 }

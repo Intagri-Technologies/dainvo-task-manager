@@ -1,4 +1,11 @@
-import { Modal, Notice, Platform, PluginSettingTab, Setting } from "obsidian";
+import {
+  Modal,
+  Notice,
+  Platform,
+  PluginSettingTab,
+  Setting,
+  type ButtonComponent,
+} from "obsidian";
 
 import type DainvoTaskManagerPlugin from "./main";
 import type { CloudPublisherVault, StableIdMode } from "./types";
@@ -180,9 +187,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           "Takeover is never automatic. This stops two Obsidian installations or Dainvo desktop from competing over Markdown writes.",
         )
         .addButton((button) =>
-          button
-            .setButtonText("Use this device")
-            .setWarning()
+          setDestructiveButton(button.setButtonText("Use this device"))
             .onClick(async () => {
               if (!(await confirmPublisherTakeover(this.plugin))) {
                 return;
@@ -205,9 +210,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           "A Dainvo account can sync one Obsidian vault to mobile. Replacing it is explicit and never uses the vault name as identity.",
         )
         .addButton((button) =>
-          button
-            .setButtonText("Replace with this vault")
-            .setWarning()
+          setDestructiveButton(button.setButtonText("Replace with this vault"))
             .onClick(async () => {
               try {
                 await this.enableCloudSyncWithConfirmation();
@@ -227,9 +230,9 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           "Relinking is explicit so one user's cloud mapping can never be inherited by another user.",
         )
         .addButton((button) =>
-          button
-            .setButtonText("Relink to signed-in account")
-            .setWarning()
+          setDestructiveButton(
+            button.setButtonText("Relink to signed-in account"),
+          )
             .onClick(async () => {
               try {
                 await this.plugin.relinkCloudAccount();
@@ -274,12 +277,10 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
       new Setting(containerEl)
         .setName("Disable and delete cloud copy")
         .setDesc(
-          "Publishing stops immediately. If cloud deletion cannot be confirmed, the status remains Disable pending so you can retry.",
+          "Publishing stops immediately. If cloud deletion cannot be confirmed, the status remains disable pending so you can retry.",
         )
         .addButton((button) =>
-          button
-            .setButtonText("Disable and delete")
-            .setWarning()
+          setDestructiveButton(button.setButtonText("Disable and delete"))
             .onClick(async () => {
               if (!(await confirmDisable(this.plugin))) {
                 return;
@@ -621,9 +622,7 @@ class ConfirmationModal extends Modal {
         button.setButtonText("Cancel").onClick(() => this.finish(false)),
       )
       .addButton((button) =>
-        button
-          .setButtonText(this.confirmLabel)
-          .setWarning()
+        setDestructiveButton(button.setButtonText(this.confirmLabel))
           .onClick(() => this.finish(true)),
       );
   }
@@ -643,6 +642,22 @@ class ConfirmationModal extends Modal {
     }
     this.close();
   }
+}
+
+type DestructiveButtonCompatibility = {
+  setDestructive?: () => ButtonComponent;
+};
+
+function setDestructiveButton(button: ButtonComponent): ButtonComponent {
+  const setDestructive = (
+    button as unknown as DestructiveButtonCompatibility
+  ).setDestructive;
+  if (typeof setDestructive === "function") {
+    return setDestructive.call(button);
+  }
+
+  button.buttonEl.addClass("mod-warning");
+  return button;
 }
 
 function cloudStatusText(status: string): string {

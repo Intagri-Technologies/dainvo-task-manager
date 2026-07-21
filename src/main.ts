@@ -1,4 +1,11 @@
-import { Notice, Platform, Plugin, TFile } from "obsidian";
+import {
+  MarkdownView,
+  normalizePath,
+  Notice,
+  Platform,
+  Plugin,
+  TFile,
+} from "obsidian";
 import {
   appHasDailyNotesPluginLoaded,
   getDailyNoteSettings,
@@ -20,6 +27,7 @@ import { DainvoSecureStore } from "./secureStore";
 import { DainvoTaskManagerSettingTab } from "./settings";
 import { buildSnapshotPayload } from "./snapshot";
 import { StableIdCoordinator } from "./stableIds";
+import { dainvoStableIdVisibilityExtension } from "./stableIdVisibility";
 import {
   DEFAULT_SETTINGS,
   type CloudPublisherVault,
@@ -67,6 +75,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       this.app.vault,
       () => this.settings,
       () => this.saveSettings(),
+      (candidate) => this.isTaskLineBeingEdited(candidate),
     );
     this.cloudCoordinator = new ObsidianCloudSyncCoordinator(
       {
@@ -81,6 +90,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       cloudClient,
       this.stableIds,
     );
+    this.registerEditorExtension(dainvoStableIdVisibilityExtension);
 
     await this.resolveDailyNoteSettings().catch(() => undefined);
     this.addSettingTab(new DainvoTaskManagerSettingTab(this));
@@ -563,6 +573,30 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     );
   }
 
+  private isTaskLineBeingEdited(candidate: {
+    notePath: string;
+    lineNumber: number;
+  }): boolean {
+    // Vault.process() edits are external to the editor transaction. Appending
+    // at the caret can leave the caret before the suffix, so Enter moves that
+    // suffix onto the continued checkbox line.
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (
+      !view?.file ||
+      view.getMode() !== "source" ||
+      normalizePath(view.file.path) !== normalizePath(candidate.notePath)
+    ) {
+      return false;
+    }
+
+    const candidateLine = candidate.lineNumber - 1;
+    return view.editor.listSelections().some(({ anchor, head }) => {
+      const firstLine = Math.min(anchor.line, head.line);
+      const lastLine = Math.max(anchor.line, head.line);
+      return candidateLine >= firstLine && candidateLine <= lastLine;
+    });
+  }
+
   private async ensureBridgeIdentityAliasSupport(): Promise<void> {
     if (!Platform.isDesktopApp || !this.getBridgeToken()) {
       return;
@@ -651,7 +685,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     this.settings.vaultId = identity.vaultId;
     this.settings.vaultName = identity.vaultName;
     this.settings.vaultPath = identity.vaultPath;
-    this.settings.vaultConfigDir = this.app.vault.configDir || ".obsidian";
+    this.settings.vaultConfigDir = this.app.vault.configDir;
     if (previousCloudVaultKey !== identity.vaultId) {
       // Legacy plugin builds could bind this physical vault to an arbitrary
       // cloud mapping. A lost/reset vault ID is also a new logical vault.

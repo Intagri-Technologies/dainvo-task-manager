@@ -17,11 +17,24 @@ export type StableIdResult = {
   baselineCreated: boolean;
 };
 
+export type StableIdWriteGuard = (candidate: {
+  notePath: string;
+  lineNumber: number;
+}) => boolean;
+
+const STABLE_ID_PREFIX = "d-";
+const STABLE_ID_ALPHABET =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const STABLE_ID_SUFFIX_LENGTH = 6;
+const ORPHANED_DAINVO_ID_TASK_RE =
+  /^(\s*[-*+]\s+\[[ xX]\])\s+\^(?:dainvo|d)-[A-Za-z0-9-]+\s*$/;
+
 export class StableIdCoordinator {
   constructor(
     private readonly vault: Vault,
     private readonly getSettings: () => DainvoPluginSettings,
     private readonly saveSettings: () => Promise<void>,
+    private readonly shouldDeferWrite: StableIdWriteGuard = () => false,
   ) {}
 
   async countBackfillCandidates(): Promise<number> {
@@ -39,26 +52,46 @@ export class StableIdCoordinator {
       await this.finishJournal();
     }
 
+    const repairedOrphans = await this.repairOrphanedDainvoIds();
     const scan = await this.scanVault();
     const settings = this.getSettings();
     settings.duplicateStableIdCount = scan.duplicates.length;
+    const allocateStableId = createStableIdAllocator(scan.blockIds);
 
     const shouldBackfill =
       input.mode === "backfill_and_future" || input.forceBackfill === true;
     let intents: StableIdJournalIntent[] = [];
     let baselineCreated = false;
+    const deferredMissing = new Set<string>();
 
     if (shouldBackfill) {
       intents = [
-        ...scan.missing.map((candidate) => makeIntent(candidate, null)),
-        ...scan.duplicates.map((candidate) =>
-          makeIntent(candidate, candidate.blockId),
+        ...scan.missing.flatMap((candidate) => {
+          if (this.shouldDefer(candidate)) {
+            deferredMissing.add(candidateFingerprint(candidate));
+            return [];
+          }
+          return [makeIntent(candidate, null, allocateStableId())];
+        }),
+        ...scan.duplicates.flatMap((candidate) =>
+          this.shouldDefer(candidate)
+            ? []
+            : [
+                makeIntent(
+                  candidate,
+                  candidate.blockId,
+                  allocateStableId(),
+                ),
+              ],
         ),
       ];
     } else {
       const copiedDainvoIds = scan.duplicates
-        .filter((candidate) => candidate.blockId?.startsWith("dainvo-"))
-        .map((candidate) => makeIntent(candidate, candidate.blockId));
+        .filter((candidate) => isDainvoOwnedBlockId(candidate.blockId))
+        .filter((candidate) => !this.shouldDefer(candidate))
+        .map((candidate) =>
+          makeIntent(candidate, candidate.blockId, allocateStableId()),
+        );
       const needsBaseline =
         input.resetFutureBaseline === true ||
         settings.futureTaskBaselineDeviceId !== input.deviceId;
@@ -69,20 +102,25 @@ export class StableIdCoordinator {
         await this.saveSettings();
         if (copiedDainvoIds.length === 0) {
           return {
-            changed: 0,
+            changed: repairedOrphans,
             duplicateCount: scan.duplicates.length,
             baselineCreated,
           };
         }
       }
 
+      const newFutureTasks = needsBaseline
+        ? []
+        : findNewFutureTasks(scan.missing, settings.futureTaskIndex);
       intents = [
         ...copiedDainvoIds,
-        ...(needsBaseline
-          ? []
-          : findNewFutureTasks(scan.missing, settings.futureTaskIndex).map(
-              (candidate) => makeIntent(candidate, null),
-            )),
+        ...newFutureTasks.flatMap((candidate) => {
+          if (this.shouldDefer(candidate)) {
+            deferredMissing.add(candidateFingerprint(candidate));
+            return [];
+          }
+          return [makeIntent(candidate, null, allocateStableId())];
+        }),
       ];
     }
 
@@ -100,13 +138,22 @@ export class StableIdCoordinator {
     }
 
     const refreshed = await this.scanVault();
-    settings.futureTaskIndex = buildFutureIndex(refreshed.missing);
+    const indexedMissing =
+      input.mode === "future_only"
+        ? excludeDeferredFutureTasks(
+            refreshed.missing,
+            settings.futureTaskIndex,
+            deferredMissing,
+            (candidate) => this.shouldDefer(candidate),
+          )
+        : refreshed.missing;
+    settings.futureTaskIndex = buildFutureIndex(indexedMissing);
     settings.futureTaskBaselineDeviceId = input.deviceId;
     settings.duplicateStableIdCount = refreshed.duplicates.length;
     await this.saveSettings();
 
     return {
-      changed: intents.length,
+      changed: intents.length + repairedOrphans,
       duplicateCount: refreshed.duplicates.length,
       baselineCreated,
     };
@@ -163,6 +210,43 @@ export class StableIdCoordinator {
     await this.saveSettings();
   }
 
+  private shouldDefer(candidate: StableIdCandidate): boolean {
+    return this.shouldDeferWrite({
+      notePath: candidate.notePath,
+      lineNumber: candidate.lineNumber,
+    });
+  }
+
+  private async repairOrphanedDainvoIds(): Promise<number> {
+    let changed = 0;
+    const files = this.vault
+      .getMarkdownFiles()
+      .sort((left, right) => left.path.localeCompare(right.path));
+
+    for (const file of files) {
+      const notePath = normalizePath(file.path);
+      const cached = await this.vault.cachedRead(file);
+      const preview = stripOrphanedDainvoIds(cached, (lineNumber) =>
+        this.shouldDeferWrite({ notePath, lineNumber }),
+      );
+      if (preview.changed === 0) {
+        continue;
+      }
+
+      let fileChanged = 0;
+      await this.vault.process(file, (content) => {
+        const repaired = stripOrphanedDainvoIds(content, (lineNumber) =>
+          this.shouldDeferWrite({ notePath, lineNumber }),
+        );
+        fileChanged = repaired.changed;
+        return repaired.content;
+      });
+      changed += fileChanged;
+    }
+
+    return changed;
+  }
+
   private async scanVault(): Promise<StableIdScan> {
     const all: StableIdCandidate[] = [];
     const files = this.vault
@@ -196,7 +280,15 @@ export class StableIdCoordinator {
         owners.set(candidate.blockId, candidate);
       }
     }
-    return { missing, duplicates };
+    return {
+      missing,
+      duplicates,
+      blockIds: new Set(
+        all.flatMap((candidate) =>
+          candidate.blockId ? [candidate.blockId] : [],
+        ),
+      ),
+    };
   }
 }
 
@@ -211,20 +303,71 @@ type StableIdCandidate = {
 type StableIdScan = {
   missing: StableIdCandidate[];
   duplicates: StableIdCandidate[];
+  blockIds: Set<string>;
 };
 
 function makeIntent(
   candidate: StableIdCandidate,
   replaceBlockId: string | null,
+  newBlockId: string,
 ): StableIdJournalIntent {
   return {
     notePath: candidate.notePath,
     lineNumber: candidate.lineNumber,
     expectedLineHash: candidate.lineHash,
-    newBlockId: `dainvo-${secureUuid()}`,
+    newBlockId,
     previousNotePath: replaceBlockId ? null : candidate.notePath,
     previousLineNumber: replaceBlockId ? null : candidate.lineNumber,
     replaceBlockId,
+  };
+}
+
+export function createStableIdAllocator(
+  existingBlockIds: Iterable<string>,
+  nextSuffix: () => string = secureStableIdSuffix,
+): () => string {
+  const used = new Set(existingBlockIds);
+  return () => {
+    for (let attempt = 0; attempt < 128; attempt += 1) {
+      const suffix = nextSuffix();
+      if (!/^[A-Za-z0-9]{6}$/.test(suffix)) {
+        throw new Error("stable_id_invalid_suffix");
+      }
+      const blockId = `${STABLE_ID_PREFIX}${suffix}`;
+      if (!used.has(blockId)) {
+        used.add(blockId);
+        return blockId;
+      }
+    }
+    throw new Error("stable_id_allocation_exhausted");
+  };
+}
+
+export function stripOrphanedDainvoIds(
+  content: string,
+  shouldDefer: (lineNumber: number) => boolean = () => false,
+): { content: string; changed: number } {
+  const eol = content.includes("\r\n") ? "\r\n" : "\n";
+  const hadFinalNewline = /(?:\r\n|\n|\r)$/.test(content);
+  const lines = content.split(/\r?\n/);
+  if (hadFinalNewline) {
+    lines.pop();
+  }
+
+  let changed = 0;
+  const repaired = lines.map((line, index) => {
+    const match = ORPHANED_DAINVO_ID_TASK_RE.exec(line);
+    if (!match || shouldDefer(index + 1)) {
+      return line;
+    }
+    changed += 1;
+    return match[1] ?? line;
+  });
+
+  return {
+    content:
+      repaired.join(eol) + (hadFinalNewline && repaired.length ? eol : ""),
+    changed,
   };
 }
 
@@ -348,6 +491,20 @@ function findNewFutureTasks(
   return [...unmatched];
 }
 
+function excludeDeferredFutureTasks(
+  candidates: readonly StableIdCandidate[],
+  previousIndex: Record<string, FutureTaskIndexEntry[]>,
+  deferredFingerprints: ReadonlySet<string>,
+  shouldDefer: (candidate: StableIdCandidate) => boolean,
+): StableIdCandidate[] {
+  const newCandidates = new Set(findNewFutureTasks(candidates, previousIndex));
+  return candidates.filter(
+    (candidate) =>
+      !deferredFingerprints.has(candidateFingerprint(candidate)) &&
+      !(newCandidates.has(candidate) && shouldDefer(candidate)),
+  );
+}
+
 function matchCandidates(
   current: Set<StableIdCandidate>,
   previous: FutureTaskIndexEntry[],
@@ -376,10 +533,43 @@ function isMarkdownFile(file: unknown): file is TFile {
 }
 
 function secureUuid(): string {
-  if (typeof globalThis.crypto?.randomUUID !== "function") {
+  if (typeof activeWindow.crypto?.randomUUID !== "function") {
     throw new Error("Secure random UUID generation is unavailable.");
   }
-  return globalThis.crypto.randomUUID();
+  return activeWindow.crypto.randomUUID();
+}
+
+function secureStableIdSuffix(): string {
+  if (typeof activeWindow.crypto?.getRandomValues !== "function") {
+    throw new Error("Secure random ID generation is unavailable.");
+  }
+  let suffix = "";
+  const unbiasedLimit =
+    Math.floor(256 / STABLE_ID_ALPHABET.length) * STABLE_ID_ALPHABET.length;
+  while (suffix.length < STABLE_ID_SUFFIX_LENGTH) {
+    const bytes = new Uint8Array(STABLE_ID_SUFFIX_LENGTH);
+    activeWindow.crypto.getRandomValues(bytes);
+    for (const value of bytes) {
+      if (value >= unbiasedLimit) {
+        continue;
+      }
+      suffix += STABLE_ID_ALPHABET[value % STABLE_ID_ALPHABET.length] ?? "0";
+      if (suffix.length === STABLE_ID_SUFFIX_LENGTH) {
+        break;
+      }
+    }
+  }
+  return suffix;
+}
+
+function isDainvoOwnedBlockId(blockId: string | null): boolean {
+  return Boolean(
+    blockId && (blockId.startsWith("dainvo-") || blockId.startsWith("d-")),
+  );
+}
+
+function candidateFingerprint(candidate: StableIdCandidate): string {
+  return `${candidate.notePath}\u0000${candidate.lineNumber}\u0000${candidate.lineHash}`;
 }
 
 function escapeRegExp(value: string): string {

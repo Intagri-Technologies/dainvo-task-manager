@@ -172,7 +172,7 @@ export type CloudSyncAccess = {
   allowed: boolean;
   plan_slug: string | null;
   plan_name: string | null;
-  reason: "eligible" | "upgrade_required" | "signed_out" | string;
+  reason: string;
 };
 
 export type CloudPublisherVault = {
@@ -245,7 +245,7 @@ export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   vaultId: "",
   vaultName: "",
   vaultPath: "",
-  vaultConfigDir: ".obsidian",
+  vaultConfigDir: "",
   dailyNoteDateFormat: "",
   dailyNoteFolder: "",
   dailyNoteTemplatePath: "",

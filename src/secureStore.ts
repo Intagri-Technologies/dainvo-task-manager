@@ -32,10 +32,10 @@ export class DainvoSecureStore {
       return current;
     }
 
-    if (typeof globalThis.crypto?.randomUUID !== "function") {
+    if (typeof activeWindow.crypto?.randomUUID !== "function") {
       throw new Error("Secure random UUID generation is unavailable.");
     }
-    const next = globalThis.crypto.randomUUID();
+    const next = activeWindow.crypto.randomUUID();
     this.storage.setSecret(DEVICE_ID_SECRET, next);
     return next;
   }
@@ -76,7 +76,7 @@ export class DainvoSecureStore {
     }
   }
 
-  private setJson(id: string, value: unknown | null): void {
+  private setJson(id: string, value: unknown): void {
     this.storage.setSecret(id, value === null ? "" : JSON.stringify(value));
   }
 }

@@ -5,11 +5,18 @@ vi.mock("obsidian", () => ({
 }));
 
 let applyIntentsToContent: typeof import("../src/stableIds").applyIntentsToContent;
+let createStableIdAllocator: typeof import("../src/stableIds").createStableIdAllocator;
 let StableIdCoordinator: typeof import("../src/stableIds").StableIdCoordinator;
+let stripOrphanedDainvoIds: typeof import("../src/stableIds").stripOrphanedDainvoIds;
 let DEFAULT_SETTINGS: typeof import("../src/types").DEFAULT_SETTINGS;
 
 beforeAll(async () => {
-  ({ applyIntentsToContent, StableIdCoordinator } = await import("../src/stableIds"));
+  ({
+    applyIntentsToContent,
+    createStableIdAllocator,
+    StableIdCoordinator,
+    stripOrphanedDainvoIds,
+  } = await import("../src/stableIds"));
   ({ DEFAULT_SETTINGS } = await import("../src/types"));
 });
 
@@ -130,7 +137,7 @@ describe("stable ID journaling", () => {
       baselineCreated: true,
     });
     expect(fixture.content("Tasks.md")).toMatch(
-      /Copied \^dainvo-[0-9a-f-]{36}/,
+      /Copied \^d-[0-9A-Za-z]{6}/,
     );
     expect(fixture.content("Tasks.md")).toContain(
       "Legacy copied ^legacy-shared",
@@ -161,6 +168,122 @@ describe("stable ID journaling", () => {
 
     expect(result.changed).toBe(0);
     expect(fixture.content("Projects/Moved.md")).toBe("- [ ] Move me");
+  });
+
+  it("waits until the caret leaves a task before appending its stable ID", async () => {
+    const fixture = createVaultFixture({
+      "Tasks.md": "- [ ] Finish typing",
+    });
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    let activeLine = 1;
+    const coordinator = new StableIdCoordinator(
+      fixture.vault,
+      () => settings,
+      async () => undefined,
+      ({ notePath, lineNumber }) =>
+        notePath === "Tasks.md" && lineNumber === activeLine,
+    );
+
+    const whileEditing = await coordinator.normalize({
+      mode: "backfill_and_future",
+      deviceId: "device-a",
+    });
+
+    expect(whileEditing.changed).toBe(0);
+    expect(fixture.content("Tasks.md")).toBe("- [ ] Finish typing");
+
+    fixture.replace({ "Tasks.md": "- [ ] Finish typing\n- [ ] " });
+    activeLine = 2;
+    const afterEnter = await coordinator.normalize({
+      mode: "backfill_and_future",
+      deviceId: "device-a",
+    });
+
+    expect(afterEnter.changed).toBe(1);
+    expect(fixture.content("Tasks.md")).toMatch(
+      /^- \[ \] Finish typing \^d-[0-9A-Za-z]{6}\n- \[ \] $/,
+    );
+  });
+
+  it("keeps a deferred new task pending in future-only mode", async () => {
+    const fixture = createVaultFixture({ "Tasks.md": "" });
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    let activeLine = 0;
+    const coordinator = new StableIdCoordinator(
+      fixture.vault,
+      () => settings,
+      async () => undefined,
+      ({ notePath, lineNumber }) =>
+        notePath === "Tasks.md" && lineNumber === activeLine,
+    );
+
+    await coordinator.normalize({ mode: "future_only", deviceId: "device-a" });
+    fixture.replace({ "Tasks.md": "- [ ] New task" });
+    activeLine = 1;
+
+    const whileEditing = await coordinator.normalize({
+      mode: "future_only",
+      deviceId: "device-a",
+    });
+    expect(whileEditing.changed).toBe(0);
+    expect(settings.futureTaskIndex).toEqual({});
+
+    activeLine = 2;
+    const afterEnter = await coordinator.normalize({
+      mode: "future_only",
+      deviceId: "device-a",
+    });
+    expect(afterEnter.changed).toBe(1);
+    expect(fixture.content("Tasks.md")).toMatch(
+      /^- \[ \] New task \^d-[0-9A-Za-z]{6}$/,
+    );
+  });
+
+  it("retries compact IDs that already exist in the vault or batch", () => {
+    const suffixes = ["ABC123", "ABC123", "xyz789"];
+    const allocate = createStableIdAllocator(
+      ["d-ABC123"],
+      () => suffixes.shift() ?? "unused",
+    );
+
+    expect(allocate()).toBe("d-xyz789");
+  });
+
+  it("repairs a Dainvo-only checkbox line created by editor continuation", async () => {
+    const fixture = createVaultFixture({
+      "Tasks.md": [
+        "- [ ] Real task ^dainvo-existing",
+        "- [ ] ^dainvo-orphaned",
+      ].join("\r\n"),
+    });
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    const coordinator = new StableIdCoordinator(
+      fixture.vault,
+      () => settings,
+      async () => undefined,
+    );
+
+    const result = await coordinator.normalize({
+      mode: "backfill_and_future",
+      deviceId: "device-a",
+    });
+
+    expect(result.changed).toBe(1);
+    expect(fixture.content("Tasks.md")).toBe(
+      "- [ ] Real task ^dainvo-existing\r\n- [ ]",
+    );
+  });
+
+  it("does not repair an orphaned ID while its line is being edited", () => {
+    expect(
+      stripOrphanedDainvoIds(
+        "- [ ] ^dainvo-orphaned\n- [ ] ^d-A1b2C3\n",
+        (lineNumber) => lineNumber === 1,
+      ),
+    ).toEqual({
+      content: "- [ ] ^dainvo-orphaned\n- [ ]\n",
+      changed: 1,
+    });
   });
 });
 

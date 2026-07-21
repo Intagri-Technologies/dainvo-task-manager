@@ -1,6 +1,6 @@
 # Dainvo Task Manager
 
-Dainvo Task Manager connects Obsidian checkbox tasks to Dainvo. Version 1.1.3
+Dainvo Task Manager connects Obsidian checkbox tasks to Dainvo. Version 1.1.4
 supports Obsidian desktop and mobile and can publish task projections directly
 to Dainvo mobile without requiring Dainvo desktop.
 
@@ -67,9 +67,12 @@ and rebuild its cache with a full snapshot.
 ## Stable task IDs
 
 The plugin uses an existing unique Obsidian block ID when one is present.
-Otherwise it appends an ID such as `^dainvo-550e8400-e29b-41d4-a716-446655440000`
-with Obsidian's atomic vault API. Stable IDs keep a task's cloud identity when a
-line moves within a note or between notes.
+Otherwise it appends a nine-character marker such as `^d-A7k2Pq` with
+Obsidian's atomic vault API. Dainvo markers are hidden on inactive task lines
+in Live Preview and appear only while that line is being edited; Source mode
+continues to show the underlying Markdown. Existing UUID-length Dainvo IDs
+remain valid and receive the same Live Preview treatment. Stable IDs keep a
+task's cloud identity when a line moves within a note or between notes.
 
 - **Backfill existing + future tasks** shows the number of affected tasks and
   asks for confirmation before changing files. The migration is journaled and
@@ -78,12 +81,16 @@ line moves within a note or between notes.
   IDs only to tasks created afterward. A publisher takeover establishes a fresh
   baseline before watching for new tasks.
 
-The parser does not add IDs in frontmatter, fenced code, non-task examples,
-blank-title tasks, or unsupported lines. Immediately before each atomic edit,
-the plugin re-parses the complete current note so a task moved into an excluded
-region after the initial scan is not changed. If a Dainvo ID was copied, the
-first occurrence keeps it and later occurrences receive new IDs during repair.
-Existing IDs are never removed when the mode changes.
+The plugin waits until the caret leaves a task line (normally after Enter)
+before appending its ID, so the editor cannot move the new suffix onto the next
+checkbox. The parser does not add IDs in frontmatter, fenced code, non-task
+examples, blank-title tasks, or unsupported lines. Immediately before each
+atomic edit, the plugin re-parses the complete current note so a task moved into
+an excluded region after the initial scan is not changed. If a Dainvo ID was
+copied, the first occurrence keeps it and later occurrences receive new IDs
+during repair. Existing IDs are never removed when the mode changes. A
+Dainvo-owned ID stranded on an otherwise blank checkbox by an older editor race
+is removed automatically while preserving the checkbox.
 
 ## Optional Dainvo desktop pairing
 

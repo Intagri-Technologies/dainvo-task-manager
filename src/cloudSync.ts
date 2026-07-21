@@ -647,7 +647,7 @@ export class ObsidianCloudSyncCoordinator {
       );
       const jitter =
         0.8 +
-        (globalThis.crypto.getRandomValues(new Uint32Array(1))[0]! /
+        (activeWindow.crypto.getRandomValues(new Uint32Array(1))[0] /
           0xffff_ffff) *
           0.4;
       settings.cloudRetryAt = new Date(

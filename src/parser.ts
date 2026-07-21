@@ -17,7 +17,6 @@ export function parseMarkdownTasks(
   input: ParseMarkdownTasksInput,
 ): ObsidianSnapshotTask[] {
   const notePath = normalizeNotePath(input.notePath);
-  const lines = input.content.split(/\r?\n/);
   const noteTitle = notePath.split("/").pop()?.replace(/\.md$/i, "") ?? notePath;
   const tasks: ObsidianSnapshotTask[] = [];
   for (const candidate of findTaskCandidates(input.content)) {

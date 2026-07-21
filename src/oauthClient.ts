@@ -239,7 +239,7 @@ function readJwtIdentity(token: string): {
     const email =
       typeof payload.email === "string" &&
       payload.email.trim().length <= 320 &&
-      !/[\u0000-\u001f\u007f]/u.test(payload.email)
+      !hasControlCharacter(payload.email)
         ? payload.email.trim()
         : "";
     return { userId, email };
@@ -249,7 +249,7 @@ function readJwtIdentity(token: string): {
 }
 
 async function pkceChallenge(verifier: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest(
+  const digest = await activeWindow.crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(verifier),
   );
@@ -258,7 +258,7 @@ async function pkceChallenge(verifier: string): Promise<string> {
 
 function randomUrlSafe(byteCount: number): string {
   const bytes = new Uint8Array(byteCount);
-  globalThis.crypto.getRandomValues(bytes);
+  activeWindow.crypto.getRandomValues(bytes);
   return base64Url(bytes);
 }
 
@@ -267,7 +267,17 @@ function base64Url(bytes: Uint8Array): string {
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return activeWindow.btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function hasControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
 }
 
 function parseJson(value: string): unknown {

@@ -125,6 +125,25 @@ describe("Dainvo OAuth PKCE client", () => {
     expect(requestUrl).not.toHaveBeenCalled();
   });
 
+  it("does not expose token email claims containing control characters", async () => {
+    const secrets = new DainvoSecureStore(
+      new MemorySecretStorage() as never,
+    );
+    secrets.setCloudSession({
+      accessToken: jwtFor(
+        "00000000-0000-4000-8000-000000000001",
+        "person\n@example.com",
+      ),
+      refreshToken: "refresh-token",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+      userId: "00000000-0000-4000-8000-000000000001",
+    });
+
+    const session = await new DainvoOAuthClient(config, secrets).getValidSession();
+
+    expect(session?.email).toBeUndefined();
+  });
+
   it("clears a terminally invalid refresh session and requires sign-in", async () => {
     const secrets = new DainvoSecureStore(
       new MemorySecretStorage() as never,

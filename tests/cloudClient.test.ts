@@ -54,7 +54,16 @@ describe("DainvoCloudClient", () => {
         discarded_operation_count: 2,
       }),
     );
-    expect(JSON.parse(requestUrl.mock.calls[0]![0].body)).toEqual({
+    const publishedRequest: unknown = requestUrl.mock.calls.at(0)?.at(0);
+    if (
+      !publishedRequest ||
+      typeof publishedRequest !== "object" ||
+      !("body" in publishedRequest) ||
+      typeof publishedRequest.body !== "string"
+    ) {
+      throw new Error("Expected publish request body.");
+    }
+    expect(JSON.parse(publishedRequest.body)).toEqual({
       p_vault: {
         vault_id: "obsidian-stable-vault",
         vault_name: "Notes",
