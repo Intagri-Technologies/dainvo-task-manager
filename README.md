@@ -14,6 +14,8 @@ is optional.
 - Syncs normal Obsidian checkbox tasks with Dainvo.
 - Keeps tasks available in Dainvo mobile while offline.
 - Lets you complete or reopen tasks from Dainvo.
+- Lets you confirm a relayed-task deletion in Dainvo mobile; the selected
+  plugin publisher applies the queued deletion to Markdown.
 - Syncs priorities, tags, due dates, and source-note information.
 - Supports optional Dainvo desktop planning and Daily Notes features.
 
