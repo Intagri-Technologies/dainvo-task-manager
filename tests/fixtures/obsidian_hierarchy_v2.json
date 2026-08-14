@@ -1,0 +1,38 @@
+{
+  "vaultId": "fixture-vault",
+  "vaultName": "Fixture Vault",
+  "notePath": "Projects/Hierarchy.md",
+  "content": "---\nexample: '- [ ] Ignored frontmatter'\n---\n# Work\n- [ ] Parent ^parent\n  - [ ] First child ^first\n    - [ ] Nested child ^nested\n  - [x] Second child ^second\n```markdown\n- [ ] Ignored fence ^ignored\n```\n- [ ] Other root ^other",
+  "expected": [
+    {
+      "providerTaskId": "fixture-vault:block:parent",
+      "parentProviderTaskId": null,
+      "indentColumns": 0,
+      "siblingOrder": 0
+    },
+    {
+      "providerTaskId": "fixture-vault:block:first",
+      "parentProviderTaskId": "fixture-vault:block:parent",
+      "indentColumns": 2,
+      "siblingOrder": 0
+    },
+    {
+      "providerTaskId": "fixture-vault:block:nested",
+      "parentProviderTaskId": "fixture-vault:block:first",
+      "indentColumns": 4,
+      "siblingOrder": 0
+    },
+    {
+      "providerTaskId": "fixture-vault:block:second",
+      "parentProviderTaskId": "fixture-vault:block:parent",
+      "indentColumns": 2,
+      "siblingOrder": 1
+    },
+    {
+      "providerTaskId": "fixture-vault:block:other",
+      "parentProviderTaskId": null,
+      "indentColumns": 0,
+      "siblingOrder": 1
+    }
+  ]
+}

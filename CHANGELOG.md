@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Publish snapshot schema v2 hierarchy metadata derived from Markdown
+  indentation, including parent provider identity and stable sibling order.
+- Share the schema-v2 parser fixture with Dainvo desktop so tabs, spaces, nested
+  tasks, and sibling order remain contract-tested across both projects.
+
+### Compatibility
+
+- Continue accepting schema-v1 root-only snapshots. A v1 retry does not clear
+  hierarchy previously published by a v2 client.
+
 ## 1.1.5 - 2026-07-21
 
 ### Fixed

@@ -497,6 +497,9 @@ export class ObsidianCloudSyncCoordinator {
       : undefined;
     return {
       provider_task_id: task.providerTaskId,
+      parent_provider_task_id: task.parentProviderTaskId,
+      sibling_order: task.siblingOrder,
+      indent_columns: task.indentColumns,
       ...(alias?.cloudPending
         ? {
             previous_provider_task_id: buildProviderTaskId({

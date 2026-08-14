@@ -19,25 +19,56 @@ export function parseMarkdownTasks(
   const notePath = normalizeNotePath(input.notePath);
   const noteTitle = notePath.split("/").pop()?.replace(/\.md$/i, "") ?? notePath;
   const tasks: ObsidianSnapshotTask[] = [];
+  const hierarchyStack: Array<{
+    indentColumns: number;
+    providerTaskId: string;
+  }> = [];
+  const siblingCounts = new Map<string, number>();
   for (const candidate of findTaskCandidates(input.content)) {
     const parsed = candidate.parsed;
+    const providerTaskId = buildProviderTaskId({
+      vaultId: input.vaultId,
+      notePath,
+      lineNumber: candidate.lineNumber,
+      blockId: parsed.blockId,
+    });
+    const indentColumns = countIndentColumns(candidate.line);
+    while (
+      hierarchyStack.length > 0 &&
+      (hierarchyStack.at(-1)?.indentColumns ?? -1) >= indentColumns
+    ) {
+      hierarchyStack.pop();
+    }
+    const parentProviderTaskId =
+      hierarchyStack.at(-1)?.providerTaskId ?? null;
+    const siblingKey = parentProviderTaskId ?? "__root__";
+    const siblingOrder = siblingCounts.get(siblingKey) ?? 0;
+    siblingCounts.set(siblingKey, siblingOrder + 1);
     tasks.push({
       ...parsed,
-      providerTaskId: buildProviderTaskId({
-        vaultId: input.vaultId,
-        notePath,
-        lineNumber: candidate.lineNumber,
-        blockId: parsed.blockId,
-      }),
+      providerTaskId,
       notePath,
       noteTitle,
       heading: candidate.heading,
       lineNumber: candidate.lineNumber,
       openUri: buildOpenUri(input.vaultName, notePath, parsed.blockId),
+      indentColumns,
+      parentProviderTaskId,
+      siblingOrder,
     });
+    hierarchyStack.push({ indentColumns, providerTaskId });
   }
 
   return tasks;
+}
+
+function countIndentColumns(line: string): number {
+  const whitespace = /^\s*/.exec(line)?.[0] ?? "";
+  let columns = 0;
+  for (const character of whitespace) {
+    columns = character === "\t" ? columns + (4 - (columns % 4)) : columns + 1;
+  }
+  return columns;
 }
 
 export function findTaskCandidates(content: string): ParsedTaskCandidate[] {

@@ -122,6 +122,9 @@ export type ObsidianSnapshotTask = {
   rawTaskLine: string;
   openUri: string;
   parserFormat: "markdown" | "tasks";
+  indentColumns: number;
+  parentProviderTaskId: string | null;
+  siblingOrder: number;
 };
 
 export type ParsedTaskCandidate = {
@@ -132,7 +135,7 @@ export type ParsedTaskCandidate = {
 };
 
 export type ObsidianSnapshotPayload = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   vaultId: string;
   vaultName: string;
   vaultPath: string;
@@ -209,6 +212,9 @@ export type CloudPendingOperation = {
 export type CloudTaskProjection = {
   provider_task_id: string;
   previous_provider_task_id?: string;
+  parent_provider_task_id: string | null;
+  sibling_order: number;
+  indent_columns: number;
   title: string;
   status: "open" | "completed";
   priority: number;

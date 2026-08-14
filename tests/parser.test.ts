@@ -1,8 +1,33 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { buildOpenUri, parseMarkdownTasks } from "../src/parser";
 
 describe("parseMarkdownTasks", () => {
+  it("matches the shared desktop/plugin schema-v2 hierarchy fixture", () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL("./fixtures/obsidian_hierarchy_v2.json", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      vaultId: string;
+      vaultName: string;
+      notePath: string;
+      content: string;
+      expected: Array<Record<string, unknown>>;
+    };
+    const tasks = parseMarkdownTasks(fixture);
+
+    expect(tasks.map((task) => ({
+      providerTaskId: task.providerTaskId,
+      parentProviderTaskId: task.parentProviderTaskId,
+      indentColumns: task.indentColumns,
+      siblingOrder: task.siblingOrder,
+    }))).toEqual(fixture.expected);
+  });
+
   it("parses Markdown and Tasks-compatible metadata", () => {
     const tasks = parseMarkdownTasks({
       vaultId: "vault-a",
@@ -148,6 +173,56 @@ describe("parseMarkdownTasks", () => {
       heading: "Real work",
       lineNumber: 12,
     });
+  });
+
+  it("projects Markdown indentation as stable schema-v2 hierarchy", () => {
+    const tasks = parseMarkdownTasks({
+      vaultId: "vault-tree",
+      vaultName: "Projects",
+      notePath: "Tree.md",
+      content: [
+        "- [ ] Parent ^parent",
+        "  - [ ] First child ^first",
+        "    - [ ] Grandchild ^grandchild",
+        "  - [x] Second child ^second",
+        "- [ ] Other root ^other",
+        "\t- [ ] Tab child ^tab-child",
+      ].join("\n"),
+    });
+
+    expect(tasks.map((task) => ({
+      id: task.providerTaskId,
+      parent: task.parentProviderTaskId,
+      indent: task.indentColumns,
+      order: task.siblingOrder,
+    }))).toEqual([
+      { id: "vault-tree:block:parent", parent: null, indent: 0, order: 0 },
+      {
+        id: "vault-tree:block:first",
+        parent: "vault-tree:block:parent",
+        indent: 2,
+        order: 0,
+      },
+      {
+        id: "vault-tree:block:grandchild",
+        parent: "vault-tree:block:first",
+        indent: 4,
+        order: 0,
+      },
+      {
+        id: "vault-tree:block:second",
+        parent: "vault-tree:block:parent",
+        indent: 2,
+        order: 1,
+      },
+      { id: "vault-tree:block:other", parent: null, indent: 0, order: 1 },
+      {
+        id: "vault-tree:block:tab-child",
+        parent: "vault-tree:block:other",
+        indent: 4,
+        order: 0,
+      },
+    ]);
   });
 
   it("percent-encodes spaces in Obsidian open URIs", () => {

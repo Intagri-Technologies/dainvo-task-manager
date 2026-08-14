@@ -249,5 +249,8 @@ function relayTask(
     rawTaskLine: `- [${status === "completed" ? "x" : " "}] ${providerTaskId}`,
     openUri: "obsidian://open",
     parserFormat: "markdown" as const,
+    indentColumns: 0,
+    parentProviderTaskId: null,
+    siblingOrder: 0,
   };
 }
