@@ -215,5 +215,8 @@ function makeSource(
     rawTaskLine,
     openUri: "obsidian://open?vault=Vault&file=Tasks.md",
     parserFormat: "markdown",
+    indentColumns: 0,
+    parentProviderTaskId: null,
+    siblingOrder: 0,
   };
 }

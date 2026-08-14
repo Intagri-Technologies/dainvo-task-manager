@@ -47,7 +47,7 @@ export async function buildSnapshotPayload(input: {
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     vaultId: input.settings.vaultId,
     vaultName: input.settings.vaultName,
     vaultPath: input.settings.vaultPath,

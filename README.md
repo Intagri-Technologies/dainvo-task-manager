@@ -40,6 +40,25 @@ Dainvo adds a short marker such as `^d-A7k2Pq` so it can recognize a task after
 you move it. The marker is hidden on inactive task lines in Live Preview and is
 shown while you edit the line. Existing Obsidian block IDs are respected.
 
+## Nested Markdown tasks
+
+Snapshot schema v2 preserves normal Markdown task indentation as read-only
+hierarchy metadata for Dainvo. The nearest preceding task at a lower indentation
+level becomes the parent, and tasks at the same indentation receive stable
+zero-based sibling order. Tabs advance to four-column stops so the plugin and
+Dainvo desktop interpret mixed tabs and spaces identically.
+
+The published task record adds only `parent_provider_task_id`, `sibling_order`,
+and `indent_columns`. It still does not upload the surrounding note body. Older
+schema-v1 snapshots remain compatible and are treated as root-only. If a v1
+publisher retries after a v2 snapshot, the cloud relay preserves the existing
+v2 relationship instead of flattening it.
+
+Dainvo can display these nested tasks and their direct progress, but hierarchy
+editing remains in Obsidian: indent or unindent the Markdown task in the note,
+then let the next snapshot update Dainvo. Dainvo does not reparent Obsidian
+tasks or use undocumented Obsidian data.
+
 ## Privacy
 
 Dainvo syncs task details, not your full notes. The plugin does not upload note
