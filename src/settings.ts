@@ -26,6 +26,7 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
     if (Platform.isDesktopApp) {
       this.renderDesktopBridgeSettings();
       this.renderDailyNoteSettings();
+      this.renderItemNoteSettings();
     }
   }
 
@@ -529,6 +530,116 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
     );
+  }
+
+  private renderItemNoteSettings(): void {
+    const { containerEl } = this;
+    const settings = this.plugin.settings;
+    const dedicated = settings.itemNotePlacement === "dedicated-folder";
+
+    new Setting(containerEl).setName("Dainvo item notes").setHeading();
+    containerEl.createEl("p", {
+      text: "Controls where Dainvo creates Markdown notes for calendar events, meetings, and buckets in this vault. Changes are exported to a paired Dainvo desktop app.",
+    });
+
+    new Setting(containerEl)
+      .setName("Note placement")
+      .setDesc(
+        "Store item notes beside the matching daily note, or under a dedicated vault-relative folder.",
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("daily-note-folder", "Beside Daily Notes")
+          .addOption("dedicated-folder", "Dedicated folder")
+          .setValue(settings.itemNotePlacement)
+          .onChange(async (value) => {
+            settings.itemNotePlacement = value as
+              | "daily-note-folder"
+              | "dedicated-folder";
+            try {
+              await this.plugin.saveItemNoteSettings();
+              this.render();
+            } catch (error) {
+              new Notice(formatError(error));
+            }
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Dedicated folder")
+      .setDesc("A relative path inside this vault.")
+      .addText((text) =>
+        text
+          .setPlaceholder("Item notes")
+          .setDisabled(!dedicated)
+          .setValue(settings.itemNoteFolder)
+          .onChange(async (value) => {
+            const previous = settings.itemNoteFolder;
+            settings.itemNoteFolder = value.trim();
+            try {
+              this.plugin.resolveItemNoteSettings();
+              await this.plugin.saveItemNoteSettings();
+            } catch (error) {
+              settings.itemNoteFolder = previous;
+              new Notice(formatError(error));
+            }
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Create a day folder")
+      .setDesc(
+        "In dedicated mode, add a dd mm yyyy directory below the year and month.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setDisabled(!dedicated)
+          .setValue(settings.itemNoteUseDayFolder)
+          .onChange(async (value) => {
+            settings.itemNoteUseDayFolder = value;
+            try {
+              await this.plugin.saveItemNoteSettings();
+            } catch (error) {
+              new Notice(formatError(error));
+            }
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Include start time")
+      .setDesc("Adds hh-mm before the title for timed items.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(settings.itemNoteIncludeStartTime)
+          .onChange(async (value) => {
+            settings.itemNoteIncludeStartTime = value;
+            try {
+              await this.plugin.saveItemNoteSettings();
+            } catch (error) {
+              new Notice(formatError(error));
+            }
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("New note content")
+      .setDesc("Start new Markdown files blank or with the saved title as h1.")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("title-heading", "Title as heading")
+          .addOption("blank", "Blank")
+          .setValue(settings.itemNoteInitialContent)
+          .onChange(async (value) => {
+            settings.itemNoteInitialContent = value as
+              | "blank"
+              | "title-heading";
+            try {
+              await this.plugin.saveItemNoteSettings();
+            } catch (error) {
+              new Notice(formatError(error));
+            }
+          }),
+      );
   }
 }
 

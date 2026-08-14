@@ -21,6 +21,7 @@ import {
   resolveDailyNoteSettingsFromSources,
   type DetectedDailyNoteSettings,
 } from "./dailyNotesSettings";
+import { resolveItemNoteSettings } from "./itemNoteSettings";
 import { DainvoOAuthClient } from "./oauthClient";
 import { getDainvoCloudConfig } from "./runtimeConfig";
 import { DainvoSecureStore } from "./secureStore";
@@ -34,6 +35,7 @@ import {
   type CloudVaultReplacementSummary,
   type DailyNoteSettings,
   type DainvoPluginSettings,
+  type ItemNoteSettings,
   type StableIdMode,
 } from "./types";
 import { resolveVaultIdentity } from "./vaultIdentity";
@@ -220,6 +222,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       vaultConfigDir: this.settings.vaultConfigDir,
       pluginVersion: this.manifest.version,
       dailyNoteSettings: await this.resolveDailyNoteSettings(),
+      itemNoteSettings: this.resolveItemNoteSettings(),
     });
 
     this.settings.accountId = result.accountId;
@@ -378,6 +381,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         vault: this.app.vault,
         settings: this.settings,
         dailyNoteSettings: await this.resolveDailyNoteSettings(),
+        itemNoteSettings: this.resolveItemNoteSettings(),
       });
       await this.bridgeClient.postSnapshot(payload);
       for (const [blockId, alias] of Object.entries(
@@ -465,6 +469,18 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       await this.cacheAutomaticDailyNoteSettings(resolved);
     }
     return resolved;
+  }
+
+  resolveItemNoteSettings(): ItemNoteSettings {
+    return resolveItemNoteSettings(this.settings);
+  }
+
+  async saveItemNoteSettings(): Promise<void> {
+    await this.saveSettings();
+    if (!this.hasDesktopBridgePairing() || !this.settings.bridgeBaseUrl) {
+      return;
+    }
+    await this.pushSnapshotNow();
   }
 
   async copyCurrentDailyNoteSettingsToOverrides(): Promise<void> {

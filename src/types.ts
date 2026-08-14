@@ -69,6 +69,11 @@ export type DainvoPluginSettings = {
   dailyNoteSettingsOverrideEnabled: boolean;
   dailyNoteSectionHeading: string;
   dailyNoteCreateEnabled: boolean;
+  itemNotePlacement: ItemNotePlacement;
+  itemNoteFolder: string;
+  itemNoteUseDayFolder: boolean;
+  itemNoteIncludeStartTime: boolean;
+  itemNoteInitialContent: ItemNoteInitialContent;
   lastStatus: string;
   lastSnapshotAt: string;
   cloudSyncEnabled: boolean;
@@ -102,6 +107,19 @@ export type DailyNoteSettings = {
   createEnabled: boolean;
   overrideEnabled: boolean;
   exportedAt: string | null;
+};
+
+export type ItemNotePlacement = "daily-note-folder" | "dedicated-folder";
+
+export type ItemNoteInitialContent = "blank" | "title-heading";
+
+export type ItemNoteSettings = {
+  placement: ItemNotePlacement;
+  folder: string;
+  useDayFolder: boolean;
+  includeStartTime: boolean;
+  initialContent: ItemNoteInitialContent;
+  exportedAt: string;
 };
 
 export type ObsidianSnapshotTask = {
@@ -141,6 +159,7 @@ export type ObsidianSnapshotPayload = {
   vaultPath: string;
   vaultConfigDir: string;
   dailyNoteSettings: DailyNoteSettings;
+  itemNoteSettings?: ItemNoteSettings;
   exportedAt: string;
   tasks: ObsidianSnapshotTask[];
 };
@@ -239,6 +258,23 @@ export type PendingMutationOperation = {
     dueAt: string | null;
   };
   source: ObsidianSnapshotTask;
+  hierarchyMove?: ObsidianHierarchyMove;
+};
+
+export type ObsidianHierarchyMoveTarget = Pick<
+  ObsidianSnapshotTask,
+  | "providerTaskId"
+  | "notePath"
+  | "lineNumber"
+  | "blockId"
+  | "lineHash"
+  | "rawTaskLine"
+>;
+
+export type ObsidianHierarchyMove = {
+  parentTaskId: string | null;
+  parentProviderTaskId: string | null;
+  target: ObsidianHierarchyMoveTarget | null;
 };
 
 export type PendingOperation = PendingMutationOperation;
@@ -258,6 +294,11 @@ export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   dailyNoteSettingsOverrideEnabled: false,
   dailyNoteSectionHeading: "## Dainvo",
   dailyNoteCreateEnabled: true,
+  itemNotePlacement: "daily-note-folder",
+  itemNoteFolder: "Item Notes",
+  itemNoteUseDayFolder: false,
+  itemNoteIncludeStartTime: false,
+  itemNoteInitialContent: "title-heading",
   lastStatus: "Not paired",
   lastSnapshotAt: "",
   cloudSyncEnabled: false,

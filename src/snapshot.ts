@@ -4,6 +4,7 @@ import { buildProviderTaskId, parseMarkdownTasks } from "./parser";
 import type {
   DailyNoteSettings,
   DainvoPluginSettings,
+  ItemNoteSettings,
   ObsidianSnapshotPayload,
 } from "./types";
 
@@ -11,6 +12,7 @@ export async function buildSnapshotPayload(input: {
   vault: Vault;
   settings: DainvoPluginSettings;
   dailyNoteSettings: DailyNoteSettings;
+  itemNoteSettings: ItemNoteSettings;
 }): Promise<ObsidianSnapshotPayload> {
   const tasks: ObsidianSnapshotPayload["tasks"] = [];
   const markdownFiles = input.vault
@@ -53,6 +55,7 @@ export async function buildSnapshotPayload(input: {
     vaultPath: input.settings.vaultPath,
     vaultConfigDir: input.settings.vaultConfigDir,
     dailyNoteSettings: input.dailyNoteSettings,
+    itemNoteSettings: input.itemNoteSettings,
     exportedAt: new Date().toISOString(),
     tasks,
   };

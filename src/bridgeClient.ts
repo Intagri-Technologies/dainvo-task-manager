@@ -5,13 +5,14 @@ import {
 } from "obsidian";
 
 import type {
-  DailyNoteSettings,
   BridgeStatus,
+  DailyNoteSettings,
   DainvoPluginSettings,
+  ItemNoteSettings,
   ObsidianSnapshotPayload,
   PairResult,
-  PendingOperation
-} from './types';
+  PendingOperation,
+} from "./types";
 
 const PREFERRED_BRIDGE_BASE_URLS = [
   'http://127.0.0.1:58234',
@@ -35,6 +36,7 @@ export class DainvoBridgeClient {
     vaultConfigDir: string;
     pluginVersion: string;
     dailyNoteSettings: DailyNoteSettings;
+    itemNoteSettings: ItemNoteSettings;
   }): Promise<PairResult> {
     const response = await requestUrl({
       url: `${normalizeBaseUrl(this.getSettings().bridgeBaseUrl)}/obsidian/v1/pair`,
@@ -49,7 +51,7 @@ export class DainvoBridgeClient {
 
   async postSnapshot(payload: ObsidianSnapshotPayload): Promise<void> {
     const response = await this.fetchWithBridgeFailover(
-      '/obsidian/v1/snapshot',
+      "/obsidian/v1/snapshot",
       {
         method: "POST",
         contentType: "application/json",
@@ -74,14 +76,14 @@ export class DainvoBridgeClient {
 
   async listOperations(): Promise<PendingOperation[]> {
     const response = await this.fetchWithBridgeFailover(
-      '/obsidian/v1/operations',
+      "/obsidian/v1/operations",
       {
         method: "GET",
         headers: this.authHeaders(),
       },
     );
     const payload = await parseJsonResponse<{ operations: PendingOperation[] }>(
-      response
+      response,
     );
 
     return payload.operations;

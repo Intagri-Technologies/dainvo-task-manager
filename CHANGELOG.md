@@ -4,6 +4,10 @@
 
 ### Added
 
+- Export vault-owned item-note placement, folder hierarchy, filename-time, and
+  initial-content settings to paired Dainvo desktop installations through the
+  backward-compatible snapshot-v2 `itemNoteSettings` field and
+  `item_notes_v1` bridge capability.
 - Publish snapshot schema v2 hierarchy metadata derived from Markdown
   indentation, including parent provider identity and stable sibling order.
 - Share the schema-v2 parser fixture with Dainvo desktop so tabs, spaces, nested

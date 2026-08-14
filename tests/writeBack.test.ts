@@ -137,6 +137,59 @@ describe("applyOperationToContent", () => {
     );
   });
 
+  it("moves and indents a leaf task beneath a target in the same note", () => {
+    const content = [
+      "- [ ] Parent ^parent",
+      "  - [ ] Existing child ^existing",
+      "- [ ] Move me ^source",
+      "- [ ] Next root ^next",
+    ].join("\n");
+    const operation = makeOperation(content, {
+      lineNumber: 3,
+      blockId: "source",
+      operationType: "move",
+    });
+    operation.hierarchyMove = {
+      parentTaskId: "parent-task",
+      parentProviderTaskId: "vault:block:parent",
+      target: {
+        providerTaskId: "vault:block:parent",
+        notePath: "Tasks.md",
+        lineNumber: 1,
+        blockId: "parent",
+        lineHash: hashTaskLine("- [ ] Parent ^parent"),
+        rawTaskLine: "- [ ] Parent ^parent",
+      },
+    };
+
+    expect(applyOperationToContent(content, operation)).toBe(
+      [
+        "- [ ] Parent ^parent",
+        "  - [ ] Existing child ^existing",
+        "  - [ ] Move me ^source",
+        "- [ ] Next root ^next",
+      ].join("\n"),
+    );
+  });
+
+  it("unindents an Obsidian child in place", () => {
+    const content = "- [ ] Parent ^parent\n\t- [ ] Child ^child\n";
+    const operation = makeOperation(content, {
+      lineNumber: 2,
+      blockId: "child",
+      operationType: "move",
+    });
+    operation.hierarchyMove = {
+      parentTaskId: null,
+      parentProviderTaskId: null,
+      target: null,
+    };
+
+    expect(applyOperationToContent(content, operation)).toBe(
+      "- [ ] Parent ^parent\n- [ ] Child ^child\n",
+    );
+  });
+
   it("throws a conflict when the expected line changed", () => {
     const operation = makeOperation("- [ ] Original task ^x", {
       blockId: "x",
