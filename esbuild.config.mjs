@@ -1,22 +1,27 @@
 import esbuild from 'esbuild';
 
-const prod = process.argv[2] === 'production';
-const cloudConfig = {
-  supabaseUrl: process.env.DAINVO_SUPABASE_URL ?? '',
-  publishableKey: process.env.DAINVO_SUPABASE_PUBLISHABLE_KEY ?? '',
-  oauthClientId: process.env.DAINVO_OBSIDIAN_OAUTH_CLIENT_ID ?? '',
-  oauthRedirectUri:
-    process.env.DAINVO_OBSIDIAN_OAUTH_REDIRECT_URI ??
-    'https://users.dainvo.com/auth/obsidian-callback'
-};
+import { DAINVO_PUBLIC_CLOUD_CONFIG } from './publicCloudConfig.mjs';
 
-if (
-  process.env.DAINVO_REQUIRE_CLOUD_CONFIG === 'true' &&
-  (!cloudConfig.supabaseUrl ||
-    !cloudConfig.publishableKey ||
-    !cloudConfig.oauthClientId)
-) {
-  throw new Error('Dainvo cloud build configuration is incomplete.');
+const prod = process.argv[2] === 'production';
+const cloudConfig = prod
+  ? DAINVO_PUBLIC_CLOUD_CONFIG
+  : {
+      supabaseUrl:
+        process.env.DAINVO_SUPABASE_URL ??
+        DAINVO_PUBLIC_CLOUD_CONFIG.supabaseUrl,
+      publishableKey:
+        process.env.DAINVO_SUPABASE_PUBLISHABLE_KEY ??
+        DAINVO_PUBLIC_CLOUD_CONFIG.publishableKey,
+      oauthClientId:
+        process.env.DAINVO_OBSIDIAN_OAUTH_CLIENT_ID ??
+        DAINVO_PUBLIC_CLOUD_CONFIG.oauthClientId,
+      oauthRedirectUri:
+        process.env.DAINVO_OBSIDIAN_OAUTH_REDIRECT_URI ??
+        DAINVO_PUBLIC_CLOUD_CONFIG.oauthRedirectUri
+    };
+
+if (!cloudConfig.publishableKey.startsWith('sb_publishable_')) {
+  throw new Error('Dainvo public builds require a Supabase publishable key.');
 }
 
 const context = await esbuild.context({

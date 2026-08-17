@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 1.2.1 - 2026-08-17
+
+### Fixed
+
+- Add searchable declarative settings for Obsidian 1.13 while preserving the
+  existing settings interface on Obsidian 1.11.4 and later.
+- Make release builds reproducible from a clean checkout by versioning only
+  the public Dainvo cloud client configuration used by official builds.
+
+### Security
+
+- Reject secret or service-role Supabase keys in the public plugin runtime.
+- Document vault reads, external network destinations, and OAuth base64url
+  processing used by the plugin.
+
 ## 1.2.0 - 2026-08-14
 
 ### Added

@@ -74,6 +74,35 @@ of the existing task snapshot and optional Dainvo mobile task relay.
 Disabling sync stops future updates and lets you delete the synced cloud copy.
 Your Obsidian notes remain unchanged.
 
+## Access and network disclosure
+
+To discover checkbox tasks and publish an authoritative snapshot, the plugin
+enumerates every Markdown file visible through Obsidian's Vault API and reads
+its cached Markdown content. It does not enumerate attachments or use
+unrestricted filesystem APIs. Stable-ID backfill and queued mobile operations
+can update the specific task lines involved after confirmation or opt-in.
+
+When mobile sync is enabled, Dainvo receives task identity, title, status,
+priority, tags, due and completion dates, hierarchy, vault-relative note path,
+note title, heading, and an Obsidian open URI. Dainvo does not receive complete
+Markdown bodies, raw task lines, attachments, passwords, local bridge secrets,
+or absolute filesystem paths.
+
+The plugin can contact these destinations:
+
+- `https://unrdknixyufoqvezjwko.supabase.co` for Dainvo authentication and the
+  authenticated task relay.
+- `https://users.dainvo.com/auth/obsidian-callback` to return from browser
+  sign-in to Obsidian.
+- `https://dainvo.com/pricing` only when you select **View plans**.
+- The user-configured Dainvo desktop bridge, normally
+  `http://127.0.0.1:58234` through `http://127.0.0.1:58238`.
+
+Runtime base64url encoding creates OAuth PKCE values, and decoding reads the
+account ID and display email from the signed-in user's JWT. It is not used to
+hide executable code or encode vault content. The plugin contains no telemetry,
+remote-code execution, or private Supabase/service-role key.
+
 ## Optional Dainvo desktop features
 
 Pairing with Dainvo desktop adds local planning, Daily Notes, and item-note

@@ -29,6 +29,12 @@ export function assertCloudConfig(
     );
   }
 
+  if (!config.publishableKey.startsWith("sb_publishable_")) {
+    throw new Error(
+      "This plugin build does not contain a safe Supabase publishable key.",
+    );
+  }
+
   if (
     config.oauthRedirectUri !==
     "https://users.dainvo.com/auth/obsidian-callback"
