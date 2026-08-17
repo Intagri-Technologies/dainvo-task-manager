@@ -24,7 +24,7 @@ describe("DainvoCloudClient", () => {
     const client = new DainvoCloudClient(
       {
         supabaseUrl: "https://example.supabase.co",
-        publishableKey: "publishable-key",
+        publishableKey: "sb_publishable_test",
         oauthClientId: "client-id",
         oauthRedirectUri: "https://users.dainvo.com/auth/obsidian-callback",
       },

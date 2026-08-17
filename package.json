@@ -1,15 +1,17 @@
 {
   "name": "dainvo-task-manager",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Sync Obsidian task projections directly with Dainvo mobile or through Dainvo desktop.",
   "type": "module",
   "main": "main.js",
   "scripts": {
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit --skipLibCheck"
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "verify:production-build": "node scripts/verify-production-build.mjs",
+    "verify:version": "node scripts/validate-release-version.mjs"
   },
   "keywords": [
     "obsidian",
@@ -26,7 +28,7 @@
     "esbuild": "^0.27.1",
     "eslint": "^9.39.5",
     "eslint-plugin-obsidianmd": "^0.4.1",
-    "obsidian": "^1.8.7",
+    "obsidian": "^1.13.0",
     "tslib": "^2.8.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.64.0",

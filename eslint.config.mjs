@@ -44,11 +44,15 @@ export default defineConfig([
     },
   },
   {
-    files: ["tests/**/*.ts"],
+    files: ["tests/**/*.ts", "scripts/**/*.mjs"],
     languageOptions: {
       globals: {
         Buffer: "readonly",
+        process: "readonly",
       },
+    },
+    rules: {
+      "obsidianmd/no-nodejs-modules": "off",
     },
   },
 ]);
