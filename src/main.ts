@@ -22,6 +22,7 @@ import {
   type DetectedDailyNoteSettings,
 } from "./dailyNotesSettings";
 import { resolveItemNoteSettings } from "./itemNoteSettings";
+import { resolveProjectNoteSettings } from "./projectNoteSettings";
 import { DainvoOAuthClient } from "./oauthClient";
 import { getDainvoCloudConfig } from "./runtimeConfig";
 import { DainvoSecureStore } from "./secureStore";
@@ -36,6 +37,7 @@ import {
   type DailyNoteSettings,
   type DainvoPluginSettings,
   type ItemNoteSettings,
+  type ProjectNoteSettings,
   type StableIdMode,
 } from "./types";
 import { resolveVaultIdentity } from "./vaultIdentity";
@@ -223,6 +225,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       pluginVersion: this.manifest.version,
       dailyNoteSettings: await this.resolveDailyNoteSettings(),
       itemNoteSettings: this.resolveItemNoteSettings(),
+      projectNoteSettings: this.resolveProjectNoteSettings(),
     });
 
     this.settings.accountId = result.accountId;
@@ -382,6 +385,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         settings: this.settings,
         dailyNoteSettings: await this.resolveDailyNoteSettings(),
         itemNoteSettings: this.resolveItemNoteSettings(),
+        projectNoteSettings: this.resolveProjectNoteSettings(),
       });
       await this.bridgeClient.postSnapshot(payload);
       for (const [blockId, alias] of Object.entries(
@@ -476,6 +480,19 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   }
 
   async saveItemNoteSettings(): Promise<void> {
+    await this.saveSettings();
+    if (!this.hasDesktopBridgePairing() || !this.settings.bridgeBaseUrl) {
+      return;
+    }
+    await this.pushSnapshotNow();
+  }
+
+  resolveProjectNoteSettings(): ProjectNoteSettings {
+    return resolveProjectNoteSettings(this.settings);
+  }
+
+  async saveProjectNoteSettings(): Promise<void> {
+    this.resolveProjectNoteSettings();
     await this.saveSettings();
     if (!this.hasDesktopBridgePairing() || !this.settings.bridgeBaseUrl) {
       return;

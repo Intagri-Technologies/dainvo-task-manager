@@ -225,6 +225,63 @@ describe("account-wide cloud vault selection", () => {
     expect(settings.cloudVaultId).toBe("");
     expect(settings.cloudStatus).toBe("disabled");
   });
+
+  it("keeps Project-note configuration out of cloud task publication", async () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      vaultId: "stable-current",
+      vaultName: "Notes",
+      projectNoteFolder: "Client Projects",
+      cloudVaultKey: "stable-current",
+      cloudSyncEnabled: true,
+      cloudStatus: "published" as const,
+      cloudEntitled: true,
+    };
+    const file = { path: "Tasks.md", extension: "md" };
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+    const coordinator = new ObsidianCloudSyncCoordinator(
+      {
+        vault: {
+          getMarkdownFiles: () => [file],
+          cachedRead: vi.fn().mockResolvedValue("- [ ] Cloud task ^task-id"),
+          getAbstractFileByPath: vi.fn(),
+        } as never,
+        getSettings: () => settings,
+        saveSettings: vi.fn().mockResolvedValue(undefined),
+        getDeviceId: () => "device",
+        ensureBridgeIdentityAliasSupport: vi.fn().mockResolvedValue(undefined),
+      },
+      {
+        getValidSession: vi.fn().mockResolvedValue({ userId: "user" }),
+      } as never,
+      {
+        getAccess: vi.fn().mockResolvedValue({
+          allowed: true,
+          plan_name: "Pro",
+          plan_slug: "pro",
+          reason: "",
+        }),
+        listPublisherVaults: vi.fn().mockResolvedValue([]),
+        publishVault: vi.fn().mockResolvedValue({
+          vault: { id: "cloud-vault" },
+        }),
+        pushSnapshot,
+        listPendingOperations: vi.fn().mockResolvedValue([]),
+      } as never,
+      {
+        countBackfillCandidates: vi.fn().mockResolvedValue(0),
+        normalize: vi.fn().mockResolvedValue({ changed: 0 }),
+      } as never,
+    );
+
+    await coordinator.requestSync();
+
+    expect(pushSnapshot).toHaveBeenCalledOnce();
+    const payload = pushSnapshot.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("projectNoteSettings");
+    expect(payload).not.toHaveProperty("projectNoteFolder");
+    expect(JSON.stringify(payload)).not.toContain("Client Projects");
+  });
 });
 
 function relayTask(

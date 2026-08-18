@@ -1,11 +1,14 @@
 import {
+  AbstractInputSuggest,
   Notice,
   Platform,
+  TFolder,
   type ButtonComponent,
   type Setting,
   type SettingDefinitionGroup,
   type SettingDefinitionItem,
   type SettingDefinitionRender,
+  type TextComponent,
 } from "obsidian";
 
 import type DainvoTaskManagerPlugin from "./main";
@@ -30,6 +33,7 @@ export function buildDainvoSettingDefinitions(
     buildDesktopBridgeDefinitions(plugin, actions),
     buildDailyNoteDefinitions(plugin, actions),
     buildItemNoteDefinitions(plugin, actions),
+    buildProjectNoteDefinitions(plugin, actions),
   ];
 }
 
@@ -581,6 +585,78 @@ function buildItemNoteDefinitions(
       }),
     ],
   };
+}
+
+function buildProjectNoteDefinitions(
+  plugin: DainvoTaskManagerPlugin,
+  actions: DainvoSettingsActions,
+): SettingDefinitionGroup {
+  const settings = plugin.settings;
+  return {
+    type: "group",
+    heading: "Dainvo project notes",
+    visible: () => Platform.isDesktopApp,
+    items: [
+      infoRow(
+        "About Dainvo project notes",
+        "Choose the vault-relative Projects directory used by a paired Dainvo desktop app. Project note files and Markdown content remain local to this vault.",
+      ),
+      row("Projects folder", (setting) => {
+        setting
+          .setDesc(
+            "Select an existing vault folder or enter a safe relative path. Dainvo creates it when the first project note is added.",
+          )
+          .addText((input) => {
+            input
+              .setPlaceholder("Projects")
+              .setValue(settings.projectNoteFolder)
+              .onChange(async (value) => {
+                const previous = settings.projectNoteFolder;
+                settings.projectNoteFolder = value.trim();
+                try {
+                  await plugin.saveProjectNoteSettings();
+                } catch (error) {
+                  settings.projectNoteFolder = previous;
+                  new Notice(formatError(error));
+                }
+              });
+            new VaultFolderSuggest(plugin, input);
+          });
+      }, { aliases: ["project note folder", "Projects directory"] }),
+    ],
+  };
+}
+
+class VaultFolderSuggest extends AbstractInputSuggest<TFolder> {
+  constructor(
+    private readonly plugin: DainvoTaskManagerPlugin,
+    private readonly input: TextComponent,
+  ) {
+    super(plugin.app, input.inputEl);
+  }
+
+  getSuggestions(query: string): TFolder[] {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return this.plugin.app.vault
+      .getAllLoadedFiles()
+      .filter((entry): entry is TFolder => entry instanceof TFolder)
+      .filter((folder) =>
+        normalizedQuery
+          ? folder.path.toLocaleLowerCase().includes(normalizedQuery)
+          : true,
+      )
+      .sort((left, right) => left.path.localeCompare(right.path));
+  }
+
+  renderSuggestion(folder: TFolder, element: HTMLElement): void {
+    element.setText(folder.path || "/");
+  }
+
+  selectSuggestion(folder: TFolder): void {
+    this.input.setValue(folder.path);
+    this.input.inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    this.close();
+  }
 }
 
 function row(

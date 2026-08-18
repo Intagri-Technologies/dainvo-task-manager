@@ -74,6 +74,7 @@ export type DainvoPluginSettings = {
   itemNoteUseDayFolder: boolean;
   itemNoteIncludeStartTime: boolean;
   itemNoteInitialContent: ItemNoteInitialContent;
+  projectNoteFolder: string;
   lastStatus: string;
   lastSnapshotAt: string;
   cloudSyncEnabled: boolean;
@@ -122,6 +123,11 @@ export type ItemNoteSettings = {
   exportedAt: string;
 };
 
+export type ProjectNoteSettings = {
+  folder: string;
+  exportedAt: string;
+};
+
 export type ObsidianSnapshotTask = {
   providerTaskId: string;
   previousProviderTaskId?: string;
@@ -160,6 +166,7 @@ export type ObsidianSnapshotPayload = {
   vaultConfigDir: string;
   dailyNoteSettings: DailyNoteSettings;
   itemNoteSettings?: ItemNoteSettings;
+  projectNoteSettings?: ProjectNoteSettings;
   exportedAt: string;
   tasks: ObsidianSnapshotTask[];
 };
@@ -299,6 +306,7 @@ export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   itemNoteUseDayFolder: false,
   itemNoteIncludeStartTime: false,
   itemNoteInitialContent: "title-heading",
+  projectNoteFolder: "Projects",
   lastStatus: "Not paired",
   lastSnapshotAt: "",
   cloudSyncEnabled: false,
