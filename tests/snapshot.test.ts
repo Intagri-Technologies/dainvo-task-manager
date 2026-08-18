@@ -37,6 +37,10 @@ describe("snapshot item-note contract", () => {
         initialContent: "blank",
         exportedAt: "2026-08-14T12:00:00.000Z",
       },
+      projectNoteSettings: {
+        folder: "Projects",
+        exportedAt: "2026-08-14T12:00:00.000Z",
+      },
     });
 
     expect(payload.schemaVersion).toBe(2);
@@ -44,6 +48,10 @@ describe("snapshot item-note contract", () => {
       placement: "dedicated-folder",
       folder: "Item Notes",
       initialContent: "blank",
+    });
+    expect(payload.projectNoteSettings).toEqual({
+      folder: "Projects",
+      exportedAt: "2026-08-14T12:00:00.000Z",
     });
     expect(payload.tasks).toHaveLength(1);
     expect(payload.tasks[0]).toMatchObject({

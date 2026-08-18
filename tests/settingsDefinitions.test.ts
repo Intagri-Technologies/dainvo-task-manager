@@ -4,8 +4,10 @@ const { Platform } = vi.hoisted(() => ({
   Platform: { isDesktopApp: true },
 }));
 vi.mock("obsidian", () => ({
+  AbstractInputSuggest: class AbstractInputSuggest {},
   Notice: class Notice {},
   Platform,
+  TFolder: class TFolder {},
 }));
 
 import { buildDainvoSettingDefinitions } from "../src/settingsDefinitions";
@@ -34,6 +36,7 @@ describe("Dainvo settings definitions", () => {
         "Dainvo bridge URL",
         "Override Obsidian Daily Notes settings",
         "Note placement",
+        "Projects folder",
       ]),
     );
     expect(findRow(rows, "Dainvo account").aliases).toEqual(
@@ -119,6 +122,8 @@ function createDefinitions(): {
     copyCurrentDailyNoteSettingsToOverrides: vi.fn(async () => undefined),
     saveItemNoteSettings: vi.fn(async () => undefined),
     resolveItemNoteSettings: vi.fn(),
+    saveProjectNoteSettings: vi.fn(async () => undefined),
+    resolveProjectNoteSettings: vi.fn(),
   } as unknown as DainvoTaskManagerPlugin;
   const definitions = buildDainvoSettingDefinitions(plugin, {
     refresh: vi.fn(),

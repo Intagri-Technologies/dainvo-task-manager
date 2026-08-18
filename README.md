@@ -1,5 +1,13 @@
 # Dainvo Task Manager
 
+## Project notes
+
+On Obsidian desktop, **Settings → Dainvo Task Manager → Dainvo project notes**
+selects the vault-relative Projects directory used by a locally paired Dainvo
+desktop app. The folder defaults to `Projects` and is created lazily when the
+first Project note is added. Project note files and Markdown content stay in
+the vault and are not included in Dainvo mobile task sync.
+
 Bring your Obsidian checkbox tasks into Dainvo without changing how you write
 notes. Keep using normal Markdown tasks in Obsidian, then view and update them
 from Dainvo mobile or Dainvo desktop.

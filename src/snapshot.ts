@@ -6,6 +6,7 @@ import type {
   DainvoPluginSettings,
   ItemNoteSettings,
   ObsidianSnapshotPayload,
+  ProjectNoteSettings,
 } from "./types";
 
 export async function buildSnapshotPayload(input: {
@@ -13,6 +14,7 @@ export async function buildSnapshotPayload(input: {
   settings: DainvoPluginSettings;
   dailyNoteSettings: DailyNoteSettings;
   itemNoteSettings: ItemNoteSettings;
+  projectNoteSettings: ProjectNoteSettings;
 }): Promise<ObsidianSnapshotPayload> {
   const tasks: ObsidianSnapshotPayload["tasks"] = [];
   const markdownFiles = input.vault
@@ -56,6 +58,7 @@ export async function buildSnapshotPayload(input: {
     vaultConfigDir: input.settings.vaultConfigDir,
     dailyNoteSettings: input.dailyNoteSettings,
     itemNoteSettings: input.itemNoteSettings,
+    projectNoteSettings: input.projectNoteSettings,
     exportedAt: new Date().toISOString(),
     tasks,
   };

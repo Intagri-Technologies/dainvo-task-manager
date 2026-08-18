@@ -12,6 +12,7 @@ import type {
   ObsidianSnapshotPayload,
   PairResult,
   PendingOperation,
+  ProjectNoteSettings,
 } from "./types";
 
 const PREFERRED_BRIDGE_BASE_URLS = [
@@ -37,6 +38,7 @@ export class DainvoBridgeClient {
     pluginVersion: string;
     dailyNoteSettings: DailyNoteSettings;
     itemNoteSettings: ItemNoteSettings;
+    projectNoteSettings: ProjectNoteSettings;
   }): Promise<PairResult> {
     const response = await requestUrl({
       url: `${normalizeBaseUrl(this.getSettings().bridgeBaseUrl)}/obsidian/v1/pair`,
