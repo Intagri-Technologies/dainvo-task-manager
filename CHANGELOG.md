@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 1.3.0 - 2026-08-19
+
+### Added
+
+- Add a desktop-only Project Notes folder setting with vault-folder suggestions
+  and cross-platform-safe relative-path validation.
+- Export the selected Project Notes folder to a locally paired Dainvo desktop
+  app through the existing snapshot and pairing payloads.
+
+### Privacy
+
+- Keep Project Notes configuration, files, and Markdown content out of Dainvo
+  mobile cloud task publication.
+
 ## 1.2.1 - 2026-08-17
 
 ### Fixed
