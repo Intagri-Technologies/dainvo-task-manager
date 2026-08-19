@@ -14,6 +14,7 @@ describe("snapshot item-note contract", () => {
 
     const payload = await buildSnapshotPayload({
       vault,
+      pluginVersion: "1.4.0",
       settings: {
         ...DEFAULT_SETTINGS,
         vaultId: "vault-1",
@@ -44,6 +45,10 @@ describe("snapshot item-note contract", () => {
     });
 
     expect(payload.schemaVersion).toBe(2);
+    expect(payload.pluginVersion).toBe("1.4.0");
+    expect(payload.writeCapabilities).toContain(
+      "cross_note_hierarchy_move_v1",
+    );
     expect(payload.itemNoteSettings).toMatchObject({
       placement: "dedicated-folder",
       folder: "Item Notes",

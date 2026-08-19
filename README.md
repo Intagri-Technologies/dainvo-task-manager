@@ -8,6 +8,11 @@ desktop app. The folder defaults to `Projects` and is created lazily when the
 first Project note is added. Project note files and Markdown content stay in
 the vault and are not included in Dainvo mobile task sync.
 
+After updating the plugin, confirm that **Dainvo desktop bridge** still shows
+**Paired**. If an older installation already shows **Not paired**, pair that
+vault once more; the next snapshot immediately sends the selected Projects
+folder to Dainvo desktop without changing any note files.
+
 Bring your Obsidian checkbox tasks into Dainvo without changing how you write
 notes. Keep using normal Markdown tasks in Obsidian, then view and update them
 from Dainvo mobile or Dainvo desktop.
@@ -64,10 +69,15 @@ publisher retries after a v2 snapshot, the cloud relay preserves the existing
 v2 relationship instead of flattening it.
 
 Dainvo can display these nested tasks and their direct progress. In a paired
-desktop vault, Dainvo can also drag a leaf task beneath another open task in
-the same note, or move that child back to the top level. The plugin applies the
-move to the Markdown list and republishes the authoritative snapshot. Tasks
-that already own subtasks and cross-note moves remain editable in Obsidian.
+desktop vault, Dainvo can drag a leaf task beneath another open task. A move
+between notes always requires a danger confirmation in Dainvo; the checkbox
+and its contiguous indented non-task Markdown are added beneath the destination
+parent and then removed from the original note. Moving a child back to the top
+level keeps it in its current note. Nested checkbox subtasks still block a
+move. Version 1.4.0 or later is required for cross-note moves.
+
+Blank checkbox lines remain in the local desktop snapshot so named descendants
+keep the correct hierarchy. They are still excluded from mobile publication.
 
 ## Privacy
 

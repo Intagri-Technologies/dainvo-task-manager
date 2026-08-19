@@ -262,6 +262,7 @@ export class StableIdCoordinator {
           lineHash: candidate.parsed.lineHash,
           titleHash: sha256(candidate.parsed.title),
           blockId: candidate.parsed.blockId,
+          isBlank: candidate.parsed.isBlank,
         });
       }
     }
@@ -271,7 +272,7 @@ export class StableIdCoordinator {
     const duplicates: StableIdCandidate[] = [];
     for (const candidate of all) {
       if (!candidate.blockId) {
-        missing.push(candidate);
+        if (!candidate.isBlank) missing.push(candidate);
         continue;
       }
       if (owners.has(candidate.blockId)) {
@@ -298,6 +299,7 @@ type StableIdCandidate = {
   lineHash: string;
   titleHash: string;
   blockId: string | null;
+  isBlank: boolean;
 };
 
 type StableIdScan = {

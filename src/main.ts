@@ -65,8 +65,11 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
     this.secureStore = new DainvoSecureStore(this.app.secretStorage);
+    // Capture the 1.0.x token before ensureVaultIdentity persists settings.
+    // saveSettings intentionally clears bearerToken after SecretStorage exists.
+    const legacyBridgeToken = this.settings.bearerToken;
     await this.ensureVaultIdentity();
-    await this.migrateLegacySecrets();
+    await this.migrateLegacySecrets(legacyBridgeToken);
 
     this.bridgeClient = new DainvoBridgeClient(
       () => this.settings,
@@ -223,6 +226,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       vaultPath: this.settings.vaultPath,
       vaultConfigDir: this.settings.vaultConfigDir,
       pluginVersion: this.manifest.version,
+      writeCapabilities: ["cross_note_hierarchy_move_v1"],
       dailyNoteSettings: await this.resolveDailyNoteSettings(),
       itemNoteSettings: this.resolveItemNoteSettings(),
       projectNoteSettings: this.resolveProjectNoteSettings(),
@@ -382,6 +386,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       await this.ensureVaultIdentity();
       const payload = await buildSnapshotPayload({
         vault: this.app.vault,
+        pluginVersion: this.manifest.version,
         settings: this.settings,
         dailyNoteSettings: await this.resolveDailyNoteSettings(),
         itemNoteSettings: this.resolveItemNoteSettings(),
@@ -649,11 +654,11 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     return this.secureStore.getBridgeToken(this.settings.vaultId);
   }
 
-  private async migrateLegacySecrets(): Promise<void> {
+  private async migrateLegacySecrets(legacyBridgeToken: string): Promise<void> {
     if (
       this.secureStore.migrateLegacyBridgeToken(
         this.settings.vaultId,
-        this.settings.bearerToken,
+        legacyBridgeToken,
       )
     ) {
       this.settings.bearerToken = "";

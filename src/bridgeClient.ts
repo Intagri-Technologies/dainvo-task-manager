@@ -36,6 +36,7 @@ export class DainvoBridgeClient {
     vaultPath: string;
     vaultConfigDir: string;
     pluginVersion: string;
+    writeCapabilities?: string[];
     dailyNoteSettings: DailyNoteSettings;
     itemNoteSettings: ItemNoteSettings;
     projectNoteSettings: ProjectNoteSettings;

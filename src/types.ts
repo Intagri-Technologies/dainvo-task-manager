@@ -149,6 +149,7 @@ export type ObsidianSnapshotTask = {
   indentColumns: number;
   parentProviderTaskId: string | null;
   siblingOrder: number;
+  isBlank?: boolean;
 };
 
 export type ParsedTaskCandidate = {
@@ -160,6 +161,7 @@ export type ParsedTaskCandidate = {
 
 export type ObsidianSnapshotPayload = {
   schemaVersion: 2;
+  pluginVersion: string;
   vaultId: string;
   vaultName: string;
   vaultPath: string;
@@ -168,6 +170,7 @@ export type ObsidianSnapshotPayload = {
   itemNoteSettings?: ItemNoteSettings;
   projectNoteSettings?: ProjectNoteSettings;
   exportedAt: string;
+  writeCapabilities?: string[];
   tasks: ObsidianSnapshotTask[];
 };
 

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 1.4.0 - 2026-08-19
+
+### Added
+
+- Advertise `cross_note_hierarchy_move_v1` to paired Dainvo desktop apps.
+- Move a stable leaf task and its contiguous indented non-task Markdown between
+  notes after Dainvo's destructive-action confirmation.
+
+### Fixed
+
+- Preserve an existing desktop pairing while migrating legacy bridge tokens to
+  Obsidian SecretStorage during plugin upgrades. Vaults already showing **Not
+  paired** must be paired once more because an erased token cannot be recovered
+  safely.
+- Preserve blank checkbox nodes and their indentation hierarchy in desktop
+  bridge snapshots while continuing to exclude them from mobile publication.
+- Make cross-note retries destination-first and idempotent, with safe
+  compensation when source deletion fails.
+- Preserve CRLF and final-newline style during hierarchy moves.
+
 ## 1.3.0 - 2026-08-19
 
 ### Added

@@ -11,6 +11,7 @@ import type {
 
 export async function buildSnapshotPayload(input: {
   vault: Vault;
+  pluginVersion: string;
   settings: DainvoPluginSettings;
   dailyNoteSettings: DailyNoteSettings;
   itemNoteSettings: ItemNoteSettings;
@@ -52,6 +53,7 @@ export async function buildSnapshotPayload(input: {
 
   return {
     schemaVersion: 2,
+    pluginVersion: input.pluginVersion,
     vaultId: input.settings.vaultId,
     vaultName: input.settings.vaultName,
     vaultPath: input.settings.vaultPath,
@@ -60,6 +62,7 @@ export async function buildSnapshotPayload(input: {
     itemNoteSettings: input.itemNoteSettings,
     projectNoteSettings: input.projectNoteSettings,
     exportedAt: new Date().toISOString(),
+    writeCapabilities: ["cross_note_hierarchy_move_v1"],
     tasks,
   };
 }

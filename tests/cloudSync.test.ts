@@ -88,6 +88,11 @@ describe("cloud pending-operation conflict handling", () => {
 });
 
 describe("relay task window selection", () => {
+  it("keeps blank snapshot nodes out of the mobile relay", () => {
+    const blank = { ...relayTask("blank", "Blank.md", "open"), isBlank: true };
+    expect(selectRelayTasks([blank])).toEqual([]);
+  });
+
   it("preserves the first duplicate owner and applies independent task windows", () => {
     const tasks = [
       relayTask("duplicate", "Z.md", "open"),

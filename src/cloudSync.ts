@@ -665,7 +665,9 @@ export class ObsidianCloudSyncCoordinator {
 export function selectRelayTasks(
   tasks: readonly ObsidianSnapshotTask[],
 ): ObsidianSnapshotTask[] {
-  const firstOwners = selectRelayTaskOwners(tasks);
+  const firstOwners = selectRelayTaskOwners(tasks).filter(
+    (task) => task.isBlank !== true,
+  );
   const active = firstOwners
     .filter((task) => task.status === "open")
     .sort(compareTaskPosition)

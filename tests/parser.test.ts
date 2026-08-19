@@ -120,7 +120,7 @@ describe("parseMarkdownTasks", () => {
     });
   });
 
-  it("excludes blank and metadata-only tasks", () => {
+  it("retains blank and metadata-only tasks for hierarchy snapshots", () => {
     const tasks = parseMarkdownTasks({
       vaultId: "vault-blank",
       vaultName: "Personal",
@@ -139,8 +139,9 @@ describe("parseMarkdownTasks", () => {
       ].join("\n"),
     });
 
-    expect(tasks).toHaveLength(2);
-    expect(tasks.map((task) => task.title)).toEqual([
+    expect(tasks).toHaveLength(10);
+    expect(tasks.slice(0, 8).every((task) => task.isBlank)).toBe(true);
+    expect(tasks.slice(8).map((task) => task.title)).toEqual([
       "2026-07-16 is visible task text",
       "Keep this title",
     ]);

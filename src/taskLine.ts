@@ -12,9 +12,12 @@ export type ParsedTaskLine = {
   lineHash: string;
   rawTaskLine: string;
   parserFormat: "markdown" | "tasks";
+  isBlank: boolean;
 };
 
-const TASK_LINE_RE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+)(.*)$/;
+export const OBSIDIAN_BLANK_TASK_TITLE = "Untitled Obsidian task";
+
+const TASK_LINE_RE = /^(\s*[-*+]\s+\[)([ xX])(\](?:\s+|$))(.*)$/;
 const BLOCK_ID_RE = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/;
 const DUE_DATE_RE = /(?:📅|\[due::)\s*(\d{4}-\d{2}-\d{2})\]?/;
 const COMPLETION_DATE_RE = /✅\s*(\d{4}-\d{2}-\d{2})/;
@@ -34,9 +37,7 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
 
   const body = match[4] ?? "";
   const title = normalizeTaskTitle(body);
-  if (!title) {
-    return null;
-  }
+  const isBlank = !title;
 
   const status = match[2]?.toLowerCase() === "x" ? "completed" : "open";
   const dueAt = parseDueAt(body);
@@ -45,7 +46,7 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
   const priority = parsePriority(body);
 
   return {
-    title,
+    title: title || OBSIDIAN_BLANK_TASK_TITLE,
     status,
     priority,
     labels,
@@ -58,6 +59,7 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
       dueAt || completedAt || labels.length > 0 || priority !== 4
         ? "tasks"
         : "markdown",
+    isBlank,
   };
 }
 
@@ -106,7 +108,8 @@ export function patchMarkdownTaskLine(input: {
     .filter(Boolean)
     .join(" ");
 
-  return `${match[1]}${checkbox}${match[3]}${nextBody}${suffix}`;
+  const separator = match[3] === "]" ? "] " : match[3];
+  return `${match[1]}${checkbox}${separator}${nextBody}${suffix}`;
 }
 
 function normalizeTaskTitle(body: string): string {
