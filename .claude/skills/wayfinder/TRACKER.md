@@ -7,17 +7,23 @@ Issues convention here, and the eight repos should not each grow one.
 
 ## Where an effort lives
 
-Same ownership rule as the `research` skill:
+Same ownership rule as the `research` skill, including its publication guard:
 
 | Scope | Location |
 | --- | --- |
-| One project | `<project>/docs/wayfinder/<effort-slug>/` |
+| One project, unpublished `docs/` | `<project>/docs/wayfinder/<effort-slug>/` |
+| One project with a **published** `docs/` tree | `docs/wayfinder/<effort-slug>/` at the workspace root |
 | Cross-project (most Dainvo big pieces) | `docs/wayfinder/<effort-slug>/` at the workspace root |
+
+**Never put a map or ticket under `dainvo/docs/` or `dainvo-docs/docs/`** —
+both trees are published (`dainvo-site.yml` uploads the former wholesale to
+GitHub Pages; the latter is the Docusaurus source for `dainvo.com/docs`), and a
+map is a list of undecided internals.
 
 Most wayfinder-sized efforts here span repos — bucket sync crossed three, a
 provider integration touches desktop, backend, gateway, and mobile — so the
-workspace root is the usual home. Note the root is not a git repository:
-cross-project maps have no history until that changes.
+workspace root is the usual home anyway. Note the root is not a git
+repository: cross-project maps have no history until that changes.
 
 ## Layout
 

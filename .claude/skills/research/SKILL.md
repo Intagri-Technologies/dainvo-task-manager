@@ -19,23 +19,29 @@ Its job:
 
 ## Where it goes
 
-Research belongs to the project it is about:
+Research belongs to the project it is about — **unless that project's `docs/`
+tree is published**:
 
 | Scope | Destination |
 | --- | --- |
-| One project | `<project>/docs/research/` |
+| One project, unpublished `docs/` | `<project>/docs/research/` |
+| One project with a **published** `docs/` tree | `docs/research/` at the workspace root |
 | Genuinely cross-project | `docs/research/` at the workspace root |
 
+Two projects publish their whole `docs/` tree and must **never** hold research
+there: `dainvo/` (uploaded wholesale to GitHub Pages by `dainvo-site.yml`) and
+`dainvo-docs/` (the Docusaurus source for `dainvo.com/docs`). Research files
+cite private implementation by file and line and enumerate unfixed gaps — a
+roadmap of soft spots that must not go public. Since most research here is
+about the desktop app, the workspace root is the usual destination.
+
 Name the file `TOPIC_AUDIT_YYYY-MM-DD.md`, matching the existing provider
-audits. Use the date the research was done, not a relative one.
+audits. Use the date the research was done, not a relative one. When a finding
+spans repos, `CONTEXT-MAP.md` names the seam it crosses.
 
-Most research here is about the desktop app even when it concerns a provider,
-because that is where provider integrations live. Put it in
-`dainvo/docs/research/` unless the finding genuinely spans repos. When it does
-span repos, `CONTEXT-MAP.md` names the seam it crosses.
-
-Never leave a research file at the workspace root. That is how the root
-accumulated 347 KB of loose audits.
+Never leave a research file loose at the workspace root (that is how the root
+accumulated 347 KB of stray audits), and never put one anywhere under
+`dainvo/docs/` or `dainvo-docs/docs/`.
 
 ## Citing
 
