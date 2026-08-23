@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "plain open task",
+      "content": "- [ ] Ship release",
+      "expectedTaskCount": 1,
+      "guard": "blocked"
+    },
+    {
+      "name": "completed recurring nested task",
+      "content": "  - [x] Review 🔁 every week 📅 2026-08-30 ^review",
+      "expectedTaskCount": 1,
+      "guard": "blocked"
+    },
+    {
+      "name": "frontmatter example",
+      "content": "---\nexample: '- [ ] Not a task'\n---\nText",
+      "expectedTaskCount": 0,
+      "guard": "allowed"
+    },
+    {
+      "name": "fenced example",
+      "content": "```md\n- [ ] Not a task\n```",
+      "expectedTaskCount": 0,
+      "guard": "allowed"
+    },
+    {
+      "name": "frontmatter followed by task",
+      "content": "---\nowner: team\n---\n- [ ] Real task",
+      "expectedTaskCount": 1,
+      "guard": "blocked"
+    },
+    {
+      "name": "quoted checkbox example",
+      "content": "> - [ ] Quoted example",
+      "expectedTaskCount": 0,
+      "guard": "allowed"
+    },
+    {
+      "name": "unclosed fence",
+      "content": "```md\n- [ ] Ambiguous example",
+      "expectedTaskCount": 0,
+      "guard": "ambiguous"
+    },
+    {
+      "name": "unsupported checkbox state",
+      "content": "- [?] Ambiguous state",
+      "expectedTaskCount": 0,
+      "guard": "ambiguous"
+    }
+  ]
+}
+

@@ -127,6 +127,18 @@ Pairing with Dainvo desktop adds local planning, Daily Notes, and item-note
 features. Start an Obsidian pairing session in Dainvo desktop, then enter the
 displayed bridge URL and pairing code in the plugin settings.
 
+Dainvo desktop can also let its built-in AI providers read or propose changes
+to Markdown in folders you select explicitly. Pairing a vault does not grant
+that access: note reading and writing are separate, off-by-default permissions,
+and full-vault access requires its own opt-in. Note content stays on the device
+unless you separately use an external AI connection with its own consent.
+
+The note tools do not edit Markdown checkbox tasks. If a selected note already
+contains a checkbox task, or a proposed change would introduce one, Dainvo
+rejects the note write and directs the action through its task tools and task
+permissions instead. The desktop and plugin run the same syntax fixtures so
+frontmatter and fenced-code examples are not mistaken for tasks.
+
 The **Dainvo item notes** plugin settings control whether event, video-meeting,
 and bucket notes are placed beside Daily Notes or in a dedicated vault folder.
 Dedicated placement can add year, month, and optional day directories. You can

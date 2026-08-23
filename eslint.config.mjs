@@ -8,6 +8,14 @@ export default defineConfig([
   },
   ...obsidianmd.configs.recommended,
   {
+    files: ["package.json"],
+    rules: {
+      // The staged-file hook runs ESLint with --fix. Keep lint-staged's backup
+      // and partial-staging protection instead of replacing it with nano-staged.
+      "depend/ban-dependencies": "off",
+    },
+  },
+  {
     files: ["**/*.ts"],
     languageOptions: {
       parser: tsparser,

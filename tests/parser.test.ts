@@ -5,6 +5,36 @@ import { describe, expect, it } from "vitest";
 import { buildOpenUri, parseMarkdownTasks } from "../src/parser";
 
 describe("parseMarkdownTasks", () => {
+  it("matches the shared desktop/plugin task-syntax fixture", () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL(
+          "./fixtures/obsidian_task_syntax_guard_v1.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ) as {
+      cases: Array<{
+        name: string;
+        content: string;
+        expectedTaskCount: number;
+      }>;
+    };
+
+    for (const entry of fixture.cases) {
+      expect(
+        parseMarkdownTasks({
+          vaultId: "fixture-vault",
+          vaultName: "Fixture",
+          notePath: "Fixture.md",
+          content: entry.content,
+        }),
+        entry.name,
+      ).toHaveLength(entry.expectedTaskCount);
+    }
+  });
+
   it("matches the shared desktop/plugin schema-v2 hierarchy fixture", () => {
     const fixture = JSON.parse(
       readFileSync(
