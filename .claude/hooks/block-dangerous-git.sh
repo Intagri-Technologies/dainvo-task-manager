@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# PreToolUse Bash hook: refuse git commands that push, create branches, or
+# PreToolUse Bash hook: refuse git commands that change branch topology or
 # destroy uncommitted work.
 #
-# The standing rule this enforces: an agent may commit to the branch that is
-# already checked out, and may not create branches or push. Landing work on a
-# remote is the user's call, every time.
+# Push authorization belongs to the agent instructions because this hook cannot
+# inspect the conversation. A direct user request authorizes a push. This hook
+# still protects branch topology and uncommitted work.
 #
 # Reads the hook payload on stdin, writes a permissionDecision on stdout.
 # Exits 0 whether it allows or denies — the decision travels in the JSON.
@@ -33,8 +33,8 @@ deny() {
 
 $fix
 
-This workspace forbids agents creating branches or pushing. Commit to the
-branch that is already checked out and let the user land it." '{
+This workspace protects branch topology and uncommitted work. Use the branch
+that is already checked out and preserve the user's files." '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
@@ -44,7 +44,8 @@ branch that is already checked out and let the user land it." '{
   exit 0
 }
 
-# Split the command line into segments so `foo && git push` is still inspected.
+# Split the command line into segments so `foo && git reset --hard` is still
+# inspected.
 # Newlines, ;, &&, ||, |, and & all start a new segment.
 SEGMENTS=$(printf '%s' "$COMMAND" \
   | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g; s/&/\n/g')
@@ -69,8 +70,7 @@ while IFS= read -r segment; do
   ((i++))
 
   # Skip git's global options, including the ones that consume a value.
-  # This is what makes `git -C dainvo push` match; a literal "git push"
-  # substring test does not.
+  # This is what makes `git -C dainvo reset --hard` match.
   while [[ $i -lt ${#words[@]} ]]; do
     case "${words[$i]}" in
       -C|-c|--exec-path|--git-dir|--work-tree|--namespace) ((i += 2)) ;;
@@ -85,10 +85,6 @@ while IFS= read -r segment; do
   args=("${words[@]:$((i + 1))}")
 
   case "$sub" in
-    push)
-      deny "\`$COMMAND\`" "Pushing is the user's decision, not yours. Ask them to push."
-      ;;
-
     reset)
       for a in "${args[@]:-}"; do
         [[ "$a" == "--hard" ]] && \

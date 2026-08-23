@@ -60,8 +60,9 @@ Redact secrets: API keys, tokens, passwords, connection strings, and personal
 data. Provider payloads and log excerpts in this workspace routinely carry auth
 headers — quote only the lines that carry the signal.
 
-Note that a `PreToolUse` hook blocks pushes and branch creation for both agents,
-so the next session cannot land the work either. Say what still needs the user.
+Note whether the user directly asked the agent to push. The hook permits pushes,
+but the agent may run one only after that direct request. The hook still blocks
+branch creation for both agents.
 
 If the user passed arguments, treat them as a description of what the next
 session will focus on and tailor the document to that.
