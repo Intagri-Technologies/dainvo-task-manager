@@ -12,6 +12,7 @@ import type {
   ObsidianSnapshotPayload,
   PairResult,
   PendingOperation,
+  ProjectNoteLinkResult,
   ProjectNoteSettings,
 } from "./types";
 
@@ -75,6 +76,19 @@ export class DainvoBridgeClient {
       },
     );
     return parseJsonResponse<BridgeStatus>(response);
+  }
+
+  // The desktop answers 200 with `link: null` when no Project owns the note;
+  // a 404 would be read as a wrong bridge port by the failover below.
+  async getProjectNoteLink(notePath: string): Promise<ProjectNoteLinkResult> {
+    const response = await this.fetchWithBridgeFailover(
+      `/obsidian/v1/project-notes?notePath=${encodeURIComponent(notePath)}`,
+      {
+        method: "GET",
+        headers: this.authHeaders(),
+      },
+    );
+    return parseJsonResponse<ProjectNoteLinkResult>(response);
   }
 
   async listOperations(): Promise<PendingOperation[]> {

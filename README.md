@@ -149,6 +149,14 @@ this exported configuration; the plugin remains its source of truth.
 Item notes use separate Markdown files. Disabling the feature, disconnecting a
 vault, or changing placement never deletes existing files.
 
+**Open task in Dainvo** (command palette, or right-click a checkbox line)
+opens that task in the paired Dainvo desktop app. If the line has no stable
+`^d-` ID yet, the plugin adds one first and pushes a snapshot so the desktop
+keeps the task's identity. **Open project in Dainvo** (right-click a note
+inside the Project Notes folder) opens the Project that Dainvo created the
+note for. Both need the local desktop pairing and open a `dainvo://` link the
+operating system routes to Dainvo desktop.
+
 ## Help
 
 If tasks are not appearing, confirm that Obsidian is open and the plugin status

@@ -75,6 +75,8 @@ export type DainvoPluginSettings = {
   itemNoteIncludeStartTime: boolean;
   itemNoteInitialContent: ItemNoteInitialContent;
   projectNoteFolder: string;
+  // The paired desktop's deep-link scheme (dainvo or dainvo-dev).
+  desktopDeepLinkScheme: string;
   lastStatus: string;
   lastSnapshotAt: string;
   cloudSyncEnabled: boolean;
@@ -178,11 +180,21 @@ export type PairResult = {
   accountId: string;
   token: string;
   baseUrl: string;
+  deepLinkScheme?: string;
 };
 
 export type BridgeStatus = {
   ok: boolean;
   capabilities?: string[];
+  deepLinkScheme?: string;
+};
+
+export type ProjectNoteLinkResult = {
+  link: {
+    projectId: string;
+    projectName: string;
+    blockId: string | null;
+  } | null;
 };
 
 export type CloudSession = {
@@ -310,6 +322,7 @@ export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   itemNoteIncludeStartTime: false,
   itemNoteInitialContent: "title-heading",
   projectNoteFolder: "Projects",
+  desktopDeepLinkScheme: "dainvo",
   lastStatus: "Not paired",
   lastSnapshotAt: "",
   cloudSyncEnabled: false,

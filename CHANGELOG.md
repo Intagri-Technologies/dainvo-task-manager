@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 1.5.0 - 2026-09-09
+
+### Added
+
+- **Open task in Dainvo**: a command and an editor context-menu item on
+  checkbox lines that open the task in the paired Dainvo desktop app through a
+  `dainvo://obsidian/task/<vault>/<block id>` link. A line without a stable
+  `^d-` ID receives one first, and a snapshot is pushed so the desktop keeps
+  the task's identity instead of importing a duplicate.
+- **Open project in Dainvo**: a file-menu item on notes inside the Project
+  Notes folder that asks the paired desktop which Project owns the note and
+  opens it. Requires a Dainvo desktop that advertises `project_note_links_v1`.
+- Remember the paired desktop's deep-link scheme so development builds of
+  Dainvo (`dainvo-dev://`) receive their own links.
+
 ## 1.4.0 - 2026-08-19
 
 ### Added

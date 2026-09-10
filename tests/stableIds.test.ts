@@ -274,6 +274,40 @@ describe("stable ID journaling", () => {
     );
   });
 
+  it("allocates an on-demand ID the vault does not use and records its alias", async () => {
+    const fixture = createVaultFixture({
+      "Tasks.md": ["- [ ] Existing ^d-Aaaaaa", "- [ ] Needs an ID"].join("\n"),
+    });
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    let saves = 0;
+    const coordinator = new StableIdCoordinator(
+      fixture.vault,
+      () => settings,
+      async () => {
+        saves += 1;
+      },
+    );
+
+    const blockId = await coordinator.allocateBlockId();
+    expect(blockId).toMatch(/^d-[A-Za-z0-9]{6}$/);
+    expect(blockId).not.toBe("d-Aaaaaa");
+    expect(fixture.content("Tasks.md")).toContain("- [ ] Needs an ID");
+
+    await coordinator.recordOnDemandAlias({
+      blockId,
+      notePath: "Tasks.md",
+      lineNumber: 2,
+    });
+    expect(settings.identityAliases[blockId]).toEqual({
+      blockId,
+      notePath: "Tasks.md",
+      lineNumber: 2,
+      cloudPending: true,
+      bridgePending: true,
+    });
+    expect(saves).toBe(1);
+  });
+
   it("does not repair an orphaned ID while its line is being edited", () => {
     expect(
       stripOrphanedDainvoIds(

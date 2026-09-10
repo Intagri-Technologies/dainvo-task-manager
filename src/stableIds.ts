@@ -159,6 +159,32 @@ export class StableIdCoordinator {
     };
   }
 
+  // Allocates one stable id that no task in the vault uses yet, for an
+  // explicit user action on a single line (the journal handles bulk runs).
+  async allocateBlockId(): Promise<string> {
+    const scan = await this.scanVault();
+    return createStableIdAllocator(scan.blockIds)();
+  }
+
+  // Records that the line at (notePath, lineNumber) now carries blockId, so
+  // the next snapshot re-keys the desktop's line-hash identity instead of
+  // importing a duplicate. Same record shape as the journal writes.
+  async recordOnDemandAlias(input: {
+    blockId: string;
+    notePath: string;
+    lineNumber: number;
+  }): Promise<void> {
+    const settings = this.getSettings();
+    settings.identityAliases[input.blockId] = {
+      blockId: input.blockId,
+      notePath: input.notePath,
+      lineNumber: input.lineNumber,
+      cloudPending: true,
+      bridgePending: true,
+    };
+    await this.saveSettings();
+  }
+
   async finishJournal(): Promise<void> {
     const settings = this.getSettings();
     const journal = settings.stableIdJournal;

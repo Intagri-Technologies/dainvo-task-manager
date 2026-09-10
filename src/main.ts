@@ -5,6 +5,9 @@ import {
   Platform,
   Plugin,
   TFile,
+  type Editor,
+  type MarkdownFileInfo,
+  type Menu,
 } from "obsidian";
 import {
   appHasDailyNotesPluginLoaded,
@@ -22,6 +25,13 @@ import {
   type DetectedDailyNoteSettings,
 } from "./dailyNotesSettings";
 import { resolveItemNoteSettings } from "./itemNoteSettings";
+import {
+  appendBlockIdToTaskLine,
+  buildObsidianTaskDeepLink,
+  buildProjectDeepLink,
+  isPathUnderFolder,
+  normalizeDeepLinkScheme,
+} from "./openInDainvo";
 import { resolveProjectNoteSettings } from "./projectNoteSettings";
 import { DainvoOAuthClient } from "./oauthClient";
 import { getDainvoCloudConfig } from "./runtimeConfig";
@@ -30,6 +40,7 @@ import { DainvoTaskManagerSettingTab } from "./settings";
 import { buildSnapshotPayload } from "./snapshot";
 import { StableIdCoordinator } from "./stableIds";
 import { dainvoStableIdVisibilityExtension } from "./stableIdVisibility";
+import { parseTaskLine } from "./taskLine";
 import {
   DEFAULT_SETTINGS,
   type CloudPublisherVault,
@@ -119,6 +130,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
 
     if (Platform.isDesktopApp) {
       this.registerDesktopCommands();
+      this.registerDesktopMenus();
     }
 
     this.app.workspace.onLayoutReady(() => {
@@ -234,6 +246,9 @@ export default class DainvoTaskManagerPlugin extends Plugin {
 
     this.settings.accountId = result.accountId;
     this.settings.bridgeBaseUrl = result.baseUrl;
+    this.settings.desktopDeepLinkScheme = normalizeDeepLinkScheme(
+      result.deepLinkScheme,
+    );
     this.settings.pairingCode = "";
     this.settings.lastStatus = "Paired";
     this.secureStore.setBridgeToken(this.settings.vaultId, result.token);
@@ -530,6 +545,25 @@ export default class DainvoTaskManagerPlugin extends Plugin {
 
   private registerDesktopCommands(): void {
     this.addCommand({
+      id: "open-task-in-dainvo",
+      name: "Open task in Dainvo",
+      editorCheckCallback: (checking, editor, ctx) => {
+        if (
+          !this.hasDesktopBridgePairing() ||
+          !parseTaskLine(editor.getLine(editor.getCursor().line))
+        ) {
+          return false;
+        }
+        if (checking) {
+          return true;
+        }
+        void this.openTaskInDainvo(editor, ctx).catch((error: unknown) => {
+          new Notice(formatError(error));
+        });
+        return true;
+      },
+    });
+    this.addCommand({
       id: "sync-vault-tasks-now",
       name: "Sync vault tasks to Dainvo desktop now",
       callback: () => {
@@ -569,6 +603,144 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     if (this.settings.cloudSyncEnabled) {
       await this.cloudCoordinator.requestSync();
     }
+  }
+
+  private registerDesktopMenus(): void {
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu: Menu, editor, info) => {
+        if (
+          !this.hasDesktopBridgePairing() ||
+          !parseTaskLine(editor.getLine(editor.getCursor().line))
+        ) {
+          return;
+        }
+        menu.addItem((item) =>
+          item
+            .setTitle("Open task in Dainvo")
+            .setIcon("external-link")
+            .onClick(() => {
+              void this.openTaskInDainvo(editor, info).catch(
+                (error: unknown) => {
+                  new Notice(formatError(error));
+                },
+              );
+            }),
+        );
+      }),
+    );
+    this.registerEvent(
+      this.app.workspace.on("file-menu", (menu: Menu, file) => {
+        if (
+          !this.hasDesktopBridgePairing() ||
+          !(file instanceof TFile) ||
+          file.extension !== "md" ||
+          !isPathUnderFolder(
+            normalizePath(file.path),
+            this.resolveProjectNoteSettings().folder,
+          )
+        ) {
+          return;
+        }
+        menu.addItem((item) =>
+          item
+            .setTitle("Open project in Dainvo")
+            .setIcon("external-link")
+            .onClick(() => {
+              void this.openProjectNoteInDainvo(file).catch(
+                (error: unknown) => {
+                  new Notice(formatError(error));
+                },
+              );
+            }),
+        );
+      }),
+    );
+  }
+
+  // Opens the checkbox line under the caret in Dainvo desktop. A line without
+  // a stable id gets one first (written through the editor so the caret ends
+  // after the suffix), the alias is recorded, and a snapshot is pushed so the
+  // desktop re-keys the task before the link asks for it by identity.
+  private async openTaskInDainvo(
+    editor: Editor,
+    ctx: MarkdownView | MarkdownFileInfo,
+  ): Promise<void> {
+    const file = ctx.file;
+    if (!file) {
+      throw new Error("Open a note before opening a task in Dainvo.");
+    }
+    if (!this.hasDesktopBridgePairing()) {
+      throw new Error("Pair this vault with Dainvo desktop first.");
+    }
+    const cursorLine = editor.getCursor().line;
+    const line = editor.getLine(cursorLine);
+    const parsed = parseTaskLine(line);
+    if (!parsed) {
+      throw new Error("Place the cursor on a checkbox task line.");
+    }
+
+    let blockId = parsed.blockId;
+    if (!blockId) {
+      blockId = await this.stableIds.allocateBlockId();
+      const next = appendBlockIdToTaskLine(line, blockId);
+      editor.setLine(cursorLine, next);
+      editor.setCursor({ line: cursorLine, ch: next.length });
+      await this.stableIds.recordOnDemandAlias({
+        blockId,
+        notePath: normalizePath(file.path),
+        lineNumber: cursorLine + 1,
+      });
+    }
+
+    await this.ensureVaultIdentity();
+    await this.pushSnapshotNow().catch((error: unknown) => {
+      // The desktop scans the vault itself when the identity is unknown, so
+      // a failed push only delays the open.
+      new Notice(formatError(error));
+    });
+
+    this.openExternalUrl(
+      buildObsidianTaskDeepLink({
+        scheme: normalizeDeepLinkScheme(this.settings.desktopDeepLinkScheme),
+        vaultId: this.settings.vaultId,
+        blockId,
+      }),
+    );
+  }
+
+  private async openProjectNoteInDainvo(file: TFile): Promise<void> {
+    if (!this.hasDesktopBridgePairing()) {
+      throw new Error("Pair this vault with Dainvo desktop first.");
+    }
+    const status = await this.bridgeClient.getStatus();
+    this.settings.desktopDeepLinkScheme = normalizeDeepLinkScheme(
+      status.deepLinkScheme ?? this.settings.desktopDeepLinkScheme,
+    );
+    await this.saveSettings();
+    if (!status.capabilities?.includes("project_note_links_v1")) {
+      throw new Error("Update Dainvo desktop to open projects from notes.");
+    }
+
+    const result = await this.bridgeClient.getProjectNoteLink(
+      normalizePath(file.path),
+    );
+    if (!result.link) {
+      new Notice("This note is not linked to a Dainvo project.");
+      return;
+    }
+
+    this.openExternalUrl(
+      buildProjectDeepLink({
+        scheme: normalizeDeepLinkScheme(this.settings.desktopDeepLinkScheme),
+        projectId: result.link.projectId,
+      }),
+    );
+  }
+
+  // Same handoff the OAuth flow uses; Obsidian passes it to the OS, which
+  // routes the dainvo:// scheme to the installed desktop app.
+  private openExternalUrl(url: string): void {
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   private registerVaultEvents(): void {
