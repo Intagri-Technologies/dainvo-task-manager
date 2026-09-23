@@ -1,73 +1,67 @@
 ---
 name: research
-description: Investigate a question against high-trust primary sources and capture the findings as a cited Markdown file under the owning project's docs/research/. Use when the user wants a topic researched, provider or API behavior established, a feature-gap audit done, or reading legwork delegated to a background agent.
+description: Investigate questions, provider behavior, and feature gaps using primary sources. Answer small lookups with citations; save reusable findings for substantial investigations or when a report is requested.
 ---
 
 # Research
 
-Spin up a **background agent** to do the reading, so you keep working while it
-reads and the raw material never lands in your context.
+Establish the question and the decision it supports. Reuse relevant evidence
+already in context and existing research that is still current.
 
-Its job:
+## Choose the scope
 
-1. Investigate the question against **primary sources**: official provider
-   documentation, RFCs, specs, first-party API references, and this
-   workspace's own source. Never a secondary write-up of them. Follow every
-   claim back to the source that owns it.
-2. Write the findings to a single Markdown file, citing each claim.
-3. Save it to the destination below, and say where it went.
+- **Small lookup:** resolve a bounded question in the current task and cite the
+  answer. A separate agent or file is unnecessary unless requested or required
+  by the calling workflow.
+- **Substantial investigation:** for a multi-source audit, provider comparison,
+  or reusable contract finding, save a concise cited report. Update an existing
+  report when it covers the same question.
+- **Delegation:** use a background agent for a bounded, independent investigation
+  when useful work can continue locally, or when explicitly requested. Give it
+  the question, relevant context, and expected output. Avoid automatic fan-out
+  or repeating its completed searches without an unresolved reason.
 
-## Where it goes
+Honor requested deliverables and calling workflows, including research tickets
+that require a saved report and a link back to the ticket.
 
-Research belongs to the project it is about — **unless that project's `docs/`
-tree is published**:
+## Establish the findings
+
+Use primary sources: official provider documentation, RFCs, specifications,
+first-party API references, and the workspace's implementation. Follow factual
+claims to the source that owns them. Inspect code before making claims about
+what this workspace actually does.
+
+Cite repo findings with the relevant file and line; cite external findings with
+the owning document's URL. When documented behavior and observed implementation
+differ, cite both and explain the difference. Use the project's glossary terms
+where their meaning matters.
+
+Separate observed behavior, documentation claims, and inference. State material
+unknowns, inaccessible sources, and behavior that still needs live verification.
+Do not treat a documentation lookup as proof of runtime behavior.
+
+Stop when evidence answers the scoped question with appropriate confidence,
+or further progress depends on unavailable evidence. Report that limitation;
+avoid tangential investigation or repeated equivalent searches.
+
+## Save reports safely
 
 | Scope | Destination |
 | --- | --- |
-| One project, unpublished `docs/` | `<project>/docs/research/` |
-| One project with a **published** `docs/` tree | `docs/research/` at the workspace root |
-| Genuinely cross-project | `docs/research/` at the workspace root |
+| One project with unpublished docs | `<project>/docs/research/` |
+| Published docs or cross-project research | Workspace `docs/research/` |
 
-Two projects publish their whole `docs/` tree and must **never** hold research
-there: `dainvo/` (uploaded wholesale to GitHub Pages by `dainvo-site.yml`) and
-`dainvo-docs/` (the Docusaurus source for `dainvo.com/docs`). Research files
-cite private implementation by file and line and enumerate unfixed gaps — a
-roadmap of soft spots that must not go public. Since most research here is
-about the desktop app, the workspace root is the usual destination.
+Private research must stay out of `dainvo/docs/`, uploaded by `dainvo-site.yml`,
+and `dainvo-docs/docs/`, the public help source. For other destinations, inspect
+publishing configuration when visibility is unclear. Never leave reports loose
+at the workspace root or include credentials or private user data.
 
-Name the file `TOPIC_AUDIT_YYYY-MM-DD.md`, matching the existing provider
-audits. Use the date the research was done, not a relative one. When a finding
-spans repos, `CONTEXT-MAP.md` names the seam it crosses.
-
-Never leave a research file loose at the workspace root (that is how the root
-accumulated 347 KB of stray audits), and never put one anywhere under
-`dainvo/docs/` or `dainvo-docs/docs/`.
-
-## Citing
-
-Every claim carries its source, in the form that lets the next reader check it:
-
-- Repo claims cite `path/to/file.ts:123`. A claim about this codebase with no
-  file and line is not a finding, it is a guess.
-- External claims cite the URL of the owning document, not a search result or
-  a blog restating it.
-- Provider behavior that is documented *and* observed in code cites both, and
-  says so when the two disagree. A disagreement between a provider's docs and
-  this workspace's implementation is itself the most valuable kind of finding.
-
-## Saying what you did not establish
-
-End every research file with what remains unverified: sources that could not be
-reached, behavior that needs a live API call to confirm, claims resting on
-documentation alone. An audit that reads as uniformly confident when parts of it
-were inferred is worse than one that marks its own soft spots.
-
-Where a term is specific to this workspace, use the owning project's
-`CONTEXT.md` spelling so the file is searchable alongside the code.
+Use `TOPIC_AUDIT_YYYY-MM-DD.md` for new reports. Keep findings tied to the question,
+cite factual conclusions, and finish with material uncertainties. Return the
+report path and the result briefly.
 
 ---
 
-Adapted from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT),
-`skills/engineering/research`. The canonical copy for this workspace lives at
-`skills/research/`; copies under each project's `.claude/`, `.codex/`, and
-`.agents/` directories are generated by `scripts/sync-agent-skills.sh`.
+Adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT.
+Canonical source: `skills/research/`. Sync generated agent copies with
+`scripts/sync-agent-skills.sh`.

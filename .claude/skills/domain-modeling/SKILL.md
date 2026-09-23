@@ -1,74 +1,76 @@
 ---
 name: domain-modeling
-description: Build and sharpen a project's domain model. Use when discussing codebase terminology, writing or editing a CONTEXT.md, recording an ADR, or when a term in this workspace seems ambiguous or overloaded.
+description: Define or revise domain concepts, relationships, glossary entries, and consequential design decisions. Use for domain-model changes or terminology ambiguity that affects behavior; ordinary use of an existing term does not require a modeling exercise.
 ---
 
-# Domain Modeling
+# Domain modeling
 
-Actively build and sharpen the project's domain model as you design. This is the *active* discipline: challenging terms, inventing edge-case scenarios, and writing the glossary and decisions down the moment they crystallise. (Merely *reading* `CONTEXT.md` for vocabulary is not this skill: that's a one-line habit any skill can do. This skill is for when you're changing the model, not just consuming it.)
+Keep the project's language consistent with its intended behavior and actual
+implementation. Match the work to the question; a terminology clarification
+does not require redesigning the domain.
 
-## Where the contexts live in this workspace
+## Resolve the term first
 
-Dainvo is a multi-project workspace, and **each project is its own context**. `CONTEXT-MAP.md` at the workspace root lists them and how they relate.
+Read the relevant entries in the owning project's `CONTEXT.md`, reusing current
+evidence already in context. Use `CONTEXT-MAP.md` for cross-project meanings or
+unclear ownership. Inspect the affected code when behavior or ownership is at
+issue.
 
-```
-Dainvo Project/
-├── CONTEXT-MAP.md          ← the map: every context and the edges between them
-├── dainvo/
-│   ├── CONTEXT.md          ← desktop app vocabulary
-│   └── docs/adr/           ← decisions scoped to the desktop app
-├── dainvo_supabase/
-│   ├── CONTEXT.md          ← backend, licensing, and cloud AI vocabulary
-│   └── docs/adr/
-└── dainvo_mobile/
-    └── CONTEXT.md
-```
+If an existing definition answers the question, explain it and stop. For vague
+or overloaded language, propose a precise term grounded in the glossary and
+code. Ask the user only when unresolved alternatives would change the behavior,
+ownership, or decision. Avoid a new interview for an incidental wording choice.
 
-Two rules follow from the layout:
+When the glossary, user intent, and implementation disagree, state the mismatch.
+Distinguish current behavior from a proposed change; do not silently treat one
+as the other. The same word can mean different things in desktop and backend,
+so verify the meaning on each side before assuming they match.
 
-- **Each `CONTEXT.md` must stand alone.** An agent opened directly on `dainvo/` never sees the workspace root above it, so a project's glossary may not depend on the map to be readable.
-- **Shared terms live in the map, not duplicated.** When a term crosses projects (a desktop concept that a migration also names), define it once in the owning project's `CONTEXT.md` and record the crossing as a relationship in `CONTEXT-MAP.md`.
+## Develop the model when needed
 
-Create files lazily: only when you have something to write. A project with no vocabulary of its own gets no `CONTEXT.md`. If no `docs/adr/` exists, create it when the first ADR is needed.
+For new or changed domain relationships, use concrete scenarios to test the
+uncertain distinction. Probe relevant edge cases until the decision is clear;
+leave unrelated concepts alone. Honor a requested modeling or interview workflow
+and its required outputs.
 
-## During the session
+Once a new definition or changed meaning is settled, capture it promptly in the
+owning `CONTEXT.md` using [CONTEXT-FORMAT.md](CONTEXT-FORMAT.md). Reusing an
+existing definition needs no document edit.
 
-### Challenge against the glossary
+Keep the glossary about domain meanings. Implementation plans, specifications,
+and scratch notes belong elsewhere. File paths may point to type definitions,
+but should not explain implementation inside the glossary.
 
-When the user uses a term that conflicts with the existing language in `CONTEXT.md`, call it out immediately. "Your glossary defines 'cancellation' as X, but you seem to mean Y. Which is it?"
+## Keep ownership clear
 
-### Sharpen fuzzy language
+Each project owns its context. Its `CONTEXT.md` must stand alone. Define a term
+once in its owning project, and record cross-project relationships in the
+workspace `CONTEXT-MAP.md` rather than duplicating definitions.
 
-When the user uses vague or overloaded terms, propose a precise canonical term. "You're saying 'account': do you mean the Customer or the User? Those are different things."
+Update the map when a context is added or renamed, or a relationship changes.
+Create glossary files only when there is project-specific vocabulary to record.
+Do not create empty glossaries or ADR directories as setup work.
 
-### Discuss concrete scenarios
+## Record consequential decisions
 
-When domain relationships are being discussed, stress-test them with specific scenarios. Invent scenarios that probe edge cases and force the user to be precise about the boundaries between concepts.
+Offer an ADR only when the decision is all of the following:
 
-### Cross-reference with code
+1. Hard to reverse at meaningful cost.
+2. Surprising to a future reader without context.
+3. The result of a real tradeoff between alternatives.
 
-When the user states how something works, check whether the code agrees. If you find a contradiction, surface it: "Your code cancels entire Orders, but you just said partial cancellation is possible. Which is right?"
+Otherwise, skip it unless explicitly requested. For a qualifying or requested
+ADR, use [ADR-FORMAT.md](ADR-FORMAT.md). Record the decision and why it was made;
+a single paragraph may be sufficient.
 
-This workspace has a specific version of that trap: the same word often means different things on either side of the desktop/backend seam. When a term appears in both `dainvo/` and `dainvo_supabase/`, confirm they mean the same thing before assuming it, and record the answer.
-
-### Update CONTEXT.md inline
-
-When a term is resolved, update `CONTEXT.md` right there. Don't batch these up: capture them as they happen. Use the format in [CONTEXT-FORMAT.md](./CONTEXT-FORMAT.md).
-
-`CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else. File paths belong there only as a pointer to where a type is defined, never as an explanation of how it works.
-
-When you add or rename a context, update `CONTEXT-MAP.md` in the same edit.
-
-### Offer ADRs sparingly
-
-Only offer to create an ADR when all three are true:
-
-1. **Hard to reverse**: the cost of changing your mind later is meaningful
-2. **Surprising without context**: a future reader will wonder "why did they do it this way?"
-3. **The result of a real trade-off**: there were genuine alternatives and you picked one for specific reasons
-
-If any of the three is missing, skip the ADR. Use the format in [ADR-FORMAT.md](./ADR-FORMAT.md). An ADR belongs to the project it constrains; a decision binding more than one project goes in the owning project's `docs/adr/` and is named as a relationship in `CONTEXT-MAP.md`.
+Follow the project's or calling workflow's ADR destination. Otherwise, use the
+owning project's `docs/adr/` when unpublished. Keep private ADRs out of the
+published `dainvo/docs/` and `dainvo-docs/docs/` trees; use workspace `docs/adr/`
+for those projects. Link decisions that constrain multiple projects from
+`CONTEXT-MAP.md`.
 
 ---
 
-Adapted from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT), `skills/engineering/domain-modeling`. The canonical copy for this workspace lives at `skills/domain-modeling/`; the copies under each project's `.claude/`, `.codex/`, and `.agents/` directories are generated. Edit the canonical copy, then run `scripts/sync-agent-skills.sh`.
+Adapted from [mattpocock/skills](https://github.com/mattpocock/skills), MIT.
+Canonical source: `skills/domain-modeling/`. Sync generated agent copies with
+`scripts/sync-agent-skills.sh`.
