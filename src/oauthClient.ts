@@ -1,22 +1,25 @@
 import { requestUrl } from "obsidian";
 
-import {
-  assertCloudConfig,
-  type DainvoCloudConfig,
-} from "./runtimeConfig";
+import { assertCloudConfig, type DainvoCloudConfig } from "./runtimeConfig";
 import type { DainvoSecureStore } from "./secureStore";
 import type { CloudSession, PendingPkce } from "./types";
 
 const PKCE_MAX_AGE_MS = 10 * 60 * 1000;
 const REFRESH_EARLY_MS = 2 * 60 * 1000;
 
+const sessionRefreshes = new WeakMap<
+  object,
+  { revision: string; promise: Promise<CloudSession> }
+>();
+
 export class DainvoOAuthError extends Error {
   constructor(
     readonly code: string,
     readonly status: number,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "DainvoOAuthError";
   }
 }
@@ -35,8 +38,10 @@ export class DainvoOAuthClient {
       redirectUri: config.oauthRedirectUri,
       createdAt: Date.now(),
     };
-    const challenge = await pkceChallenge(pending.verifier);
     this.secrets.setPendingPkce(pending);
+    const challenge = await pkceChallenge(pending.verifier);
+    if (this.secrets.getPendingPkce()?.state !== pending.state)
+      throw supersededAuthorization();
 
     const url = new URL(`${config.supabaseUrl}/auth/v1/oauth/authorize`);
     url.searchParams.set("client_id", config.oauthClientId);
@@ -48,22 +53,29 @@ export class DainvoOAuthClient {
     return url.toString();
   }
 
-  async completeAuthorization(params: Record<string, string>): Promise<CloudSession> {
-    const safeError = params.error?.trim();
-    if (safeError) {
-      this.secrets.setPendingPkce(null);
-      throw new Error(params.error_description?.trim() || safeError);
-    }
-
+  async completeAuthorization(
+    params: Record<string, string>,
+  ): Promise<CloudSession> {
     const pending = this.secrets.getPendingPkce();
-    if (!pending || Date.now() - pending.createdAt > PKCE_MAX_AGE_MS) {
+    if (!pending || !params.state || params.state !== pending.state) {
+      throw new Error(
+        "The Dainvo sign-in response did not match this request.",
+      );
+    }
+    if (Date.now() - pending.createdAt > PKCE_MAX_AGE_MS) {
       this.secrets.setPendingPkce(null);
       throw new Error("The Dainvo sign-in request expired. Please try again.");
     }
-    if (!params.state || params.state !== pending.state) {
+    const safeError = params.error?.trim();
+    if (safeError) {
       this.secrets.setPendingPkce(null);
-      throw new Error("The Dainvo sign-in response did not match this request.");
+      throw new DainvoOAuthError(
+        readOAuthErrorCode({ error: safeError }, 400),
+        400,
+        "Dainvo sign-in was not completed. Please try again.",
+      );
     }
+    const revision = this.secrets.getSessionRevision();
     const code = params.code?.trim();
     if (!code) {
       throw new Error("Dainvo did not return an authorization code.");
@@ -76,6 +88,11 @@ export class DainvoOAuthClient {
       redirect_uri: pending.redirectUri,
       code_verifier: pending.verifier,
     });
+    if (
+      this.secrets.getSessionRevision() !== revision ||
+      this.secrets.getPendingPkce()?.state !== pending.state
+    )
+      throw supersededAuthorization();
     this.secrets.setPendingPkce(null);
     const session = sessionFromToken(token);
     this.secrets.setCloudSession(session);
@@ -95,30 +112,69 @@ export class DainvoOAuthClient {
       return session;
     }
 
+    const revision = this.secrets.getSessionRevision();
+    const scope = this.secrets.getSessionScope();
+    const existing = sessionRefreshes.get(scope);
+    if (existing?.revision === revision) return existing.promise;
+    const promise = this.refreshSession(session, revision);
+    sessionRefreshes.set(scope, { revision, promise });
+    try {
+      return await promise;
+    } finally {
+      if (sessionRefreshes.get(scope)?.promise === promise)
+        sessionRefreshes.delete(scope);
+    }
+  }
+
+  private async refreshSession(
+    session: CloudSession,
+    revision: string,
+  ): Promise<CloudSession> {
     try {
       const token = await this.tokenRequest({
         grant_type: "refresh_token",
         client_id: assertCloudConfig(this.config).oauthClientId,
         refresh_token: session.refreshToken,
       });
+      if (this.secrets.getSessionRevision() !== revision)
+        throw supersededAuthorization();
       const refreshed = sessionFromToken(token, session.refreshToken);
+      if (refreshed.userId !== session.userId)
+        throw new Error("Dainvo returned a different account during refresh.");
       this.secrets.setCloudSession(refreshed);
       return refreshed;
     } catch (error) {
+      if (this.secrets.getSessionRevision() !== revision)
+        throw supersededAuthorization(error);
       if (isTerminalRefreshError(error)) {
         this.secrets.setCloudSession(null);
         throw new DainvoOAuthError(
           "signed_out",
           error.status,
           "Your Dainvo sign-in expired. Please sign in again.",
+          { cause: error },
         );
       }
       throw error;
     }
   }
 
+  invalidateSession(session: CloudSession): boolean {
+    const current = this.secrets.getCloudSession();
+    if (
+      !current ||
+      current.userId !== session.userId ||
+      current.accessToken !== session.accessToken ||
+      current.refreshToken !== session.refreshToken
+    )
+      return false;
+    this.secrets.setCloudSession(null);
+    return true;
+  }
+
   async signOut(): Promise<void> {
     const session = this.secrets.getCloudSession();
+    this.secrets.clearAllCloudSecrets();
     if (session) {
       try {
         await requestUrl({
@@ -134,7 +190,6 @@ export class DainvoOAuthClient {
         // Local sign-out must still complete when offline.
       }
     }
-    this.secrets.clearAllCloudSecrets();
   }
 
   private async tokenRequest(
@@ -223,7 +278,9 @@ function readJwtIdentity(token: string): {
     return { userId: null, email: "" };
   }
   try {
-    const padded = payloadPart.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = payloadPart
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
       .padEnd(Math.ceil(payloadPart.length / 4) * 4, "=");
     const bytes = Uint8Array.from(atob(padded), (character) =>
       character.charCodeAt(0),
@@ -267,7 +324,8 @@ function base64Url(bytes: Uint8Array): string {
   for (const byte of bytes) {
     binary += String.fromCharCode(byte);
   }
-  return activeWindow.btoa(binary)
+  return activeWindow
+    .btoa(binary)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
@@ -291,9 +349,9 @@ function parseJson(value: string): unknown {
 function isTokenResponse(value: unknown): value is OAuthTokenResponse {
   return Boolean(
     value &&
-      typeof value === "object" &&
-      "access_token" in value &&
-      typeof (value as { access_token?: unknown }).access_token === "string",
+    typeof value === "object" &&
+    "access_token" in value &&
+    typeof (value as { access_token?: unknown }).access_token === "string",
   );
 }
 
@@ -325,4 +383,13 @@ function readOAuthErrorCode(value: unknown, status: number): string {
     }
   }
   return `oauth_http_${status}`;
+}
+
+function supersededAuthorization(cause?: unknown): DainvoOAuthError {
+  return new DainvoOAuthError(
+    "request_superseded",
+    0,
+    "The Dainvo account changed. Please try again.",
+    { cause },
+  );
 }

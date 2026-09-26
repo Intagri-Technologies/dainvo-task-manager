@@ -3,6 +3,8 @@ import type { SecretStorage } from "obsidian";
 import { sha256 } from "./sha256";
 import type { CloudSession, PendingPkce } from "./types";
 
+const SESSION_REVISION_SECRET = "dainvo-task-manager-session-revision";
+
 const CLOUD_SESSION_SECRET = "dainvo-task-manager-cloud-session";
 const PKCE_SECRET = "dainvo-task-manager-pkce";
 const DEVICE_ID_SECRET = "dainvo-task-manager-device-id";
@@ -14,7 +16,19 @@ export class DainvoSecureStore {
     return this.getJson<CloudSession>(CLOUD_SESSION_SECRET);
   }
 
+  getSessionScope(): object {
+    return this.storage;
+  }
+
+  getSessionRevision(): string {
+    return this.storage.getSecret(SESSION_REVISION_SECRET) ?? "";
+  }
+
   setCloudSession(session: CloudSession | null): void {
+    this.storage.setSecret(
+      SESSION_REVISION_SECRET,
+      activeWindow.crypto.randomUUID(),
+    );
     this.setJson(CLOUD_SESSION_SECRET, session);
   }
 

@@ -163,3 +163,15 @@ If tasks are not appearing, confirm that Obsidian is open and the plugin status
 is **Published**. For release details, see the [changelog](CHANGELOG.md). To
 report a problem, open a
 [GitHub issue](https://github.com/Intagri-Technologies/dainvo-task-manager/issues).
+
+### Cloud sign-in lifecycle
+
+Cloud sign-out clears the session and pending authorization before its
+best-effort [local-scope logout](https://supabase.com/docs/guides/auth/signout)
+request. Token responses check a persisted session revision, and callback state
+is verified before handling errors. A late response cannot replace a newer
+session or cancel a newer sign-in. Refresh calls from clients sharing the same
+secret storage coalesce within the plugin runtime; retryable failures preserve
+the stored session. Source Markdown and device bridge tokens are unchanged by
+cloud sign-out. The protocol remains Supabase's documented
+[authorization-code and refresh flow](https://supabase.com/docs/guides/auth/oauth-server/oauth-flows).

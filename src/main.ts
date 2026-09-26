@@ -274,11 +274,11 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   }
 
   async signOutCloud(): Promise<void> {
-    await this.oauthClient.signOut();
+    const signingOut = this.oauthClient.signOut();
     this.settings.cloudStatus = this.settings.cloudSyncEnabled
       ? "paused_signed_out"
       : "disabled";
-    await this.saveSettings();
+    await Promise.all([signingOut, this.saveSettings()]);
   }
 
   async enableCloudSync(
