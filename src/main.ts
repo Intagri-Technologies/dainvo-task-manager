@@ -240,7 +240,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       vaultPath: this.settings.vaultPath,
       vaultConfigDir: this.settings.vaultConfigDir,
       pluginVersion: this.manifest.version,
-      writeCapabilities: ["cross_note_hierarchy_move_v1", "task_create_v1"],
+      writeCapabilities: ["cross_note_hierarchy_move_v1", "task_create_v1", "write_receipt_v1"],
       dailyNoteSettings: await this.resolveDailyNoteSettings(),
       itemNoteSettings: this.resolveItemNoteSettings(),
       projectNoteSettings: this.resolveProjectNoteSettings(),
@@ -455,8 +455,14 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         await processJournaledBridgeOperation({
           operation,
           journal: this.settings.bridgeOperationJournal,
+          requireReceipt: true,
           save: () => this.saveSettings(),
-          apply: (queued, recoveringPrepared) => applyOperationToVault(this.app.vault, queued, { recoveringPreparedCreate: recoveringPrepared }),
+          apply: (queued, recoveringPrepared) => applyOperationToVault(this.app.vault, queued, {
+            recoveringPreparedCreate: recoveringPrepared,
+            vaultIdentity: { vaultId: this.settings.vaultId, vaultName: this.app.vault.getName() },
+            moveJournal: this.settings.bridgeOperationJournal[queued.id]?.move,
+            saveMoveJournal: async (move) => { this.settings.bridgeOperationJournal[queued.id].move = move; await this.saveSettings(); },
+          }),
           acknowledge: (id, result) => this.bridgeClient.ackOperation(id, result),
         });
       }

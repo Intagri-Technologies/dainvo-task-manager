@@ -191,3 +191,27 @@ secret storage coalesce within the plugin runtime; retryable failures preserve
 the stored session. Source Markdown and device bridge tokens are unchanged by
 cloud sign-out. The protocol remains Supabase's documented
 [authorization-code and refresh flow](https://supabase.com/docs/guides/auth/oauth-server/oauth-flows).
+
+
+### Durable desktop write receipts
+
+Desktop task writes advertise `write_receipt_v1`. The plugin saves the original
+operation before changing a note, then saves the exact written task anchor
+before acknowledging it. A lost acknowledgement is retried from that receipt;
+it does not edit Markdown again. Desktop advances the anchor atomically while
+preserving later local edits. Older plugins keep desktop writes queued with an
+upgrade message.
+
+Cross-note task moves journal the complete source block before inserting it
+under the destination parent. After a restart, the plugin verifies the existing
+destination block and removes only the unchanged original source block. A
+changed source task is retained for review. Unrelated note edits survive. New
+task creates continue to use stable saved block IDs, `Vault.process` for existing
+notes and `Vault.create` for a missing note.
+
+Desktop Settings → Integrations provides reviewed recovery for an uncertain
+create or changed source. Linking or discarding a saved intent does not delete
+remote notes. Creating another copy requires a duplicate warning and receives
+a new operation and block identity. These changes require a coordinated desktop
+and plugin release; mocked restart tests do not establish cross-process
+filesystem compare-and-swap guarantees.

@@ -325,7 +325,7 @@ describe("applyOperationToContent", () => {
     );
   });
 
-  it("removes the inserted destination block when source deletion fails", async () => {
+  it("retains the verified destination for restart recovery when source deletion fails", async () => {
     const source = "- [ ] Move me ^source\n  detail\n";
     const target = "- [ ] Parent ^parent\n";
     const files = new Map([
@@ -368,10 +368,10 @@ describe("applyOperationToContent", () => {
       "source write failed",
     );
     expect(files.get("Source.md")).toBe(source);
-    expect(files.get("Target.md")).toBe(target);
+    expect(files.get("Target.md")).toContain("Move me ^source");
   });
 
-  it("compensates when the source note changes after destination insertion", async () => {
+  it("preserves unrelated source-note edits while removing only the saved task block", async () => {
     const source = "- [ ] Move me ^source\n  detail\n";
     const changedSource = `${source}\nUser edit\n`;
     const target = "- [ ] Parent ^parent\n";
@@ -409,11 +409,10 @@ describe("applyOperationToContent", () => {
       },
     };
 
-    await expect(applyOperationToVault(vault, operation)).rejects.toThrow(
-      "Source note changed before deletion",
-    );
-    expect(files.get("Source.md")).toBe(changedSource);
-    expect(files.get("Target.md")).toBe(target);
+    await applyOperationToVault(vault, operation);
+    expect(files.get("Source.md")).toContain("User edit");
+    expect(files.get("Source.md")).not.toContain("Move me");
+    expect(files.get("Target.md")).toContain("Move me ^source");
   });
 
   it("rejects an unrelated destination block that reuses the source marker", async () => {

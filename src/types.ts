@@ -100,7 +100,7 @@ export type DainvoPluginSettings = {
   futureTaskBaselineDeviceId: string;
   duplicateStableIdCount: number;
   cloudOperationJournal: Record<string, CloudOperationJournalEntry>;
-  bridgeOperationJournal: Record<string, { operation: PendingOperation; state: "prepared" | "written" }>;
+  bridgeOperationJournal: Record<string, { operation: PendingOperation; state: "prepared" | "written"; receipt?: WriteBackReceipt; move?: CrossNoteMoveJournal }>;
 };
 
 export type DailyNoteSettings = {
@@ -306,6 +306,15 @@ export type ObsidianHierarchyMove = {
   parentTaskId: string | null;
   parentProviderTaskId: string | null;
   target: ObsidianHierarchyMoveTarget | null;
+};
+
+export type WriteBackReceipt = {
+  previousSource: { notePath: string; lineHash: string };
+  writtenSource: ObsidianSnapshotTask | null;
+};
+export type CrossNoteMoveJournal = {
+  sourceBlockLines: string[];
+  destinationWritten: boolean;
 };
 
 export type PendingOperation = PendingMutationOperation;

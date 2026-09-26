@@ -108,7 +108,7 @@ export class DainvoBridgeClient {
 
   async ackOperation(
     operationId: string,
-    payload: { status: "succeeded" | "failed" | "conflict"; error?: string },
+    payload: { status: "succeeded" | "failed" | "conflict"; error?: string; receipt?: import("./types").WriteBackReceipt },
   ): Promise<void> {
     const response = await this.fetchWithBridgeFailover(
       `/obsidian/v1/operations/${encodeURIComponent(operationId)}/ack`,

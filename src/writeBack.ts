@@ -1,7 +1,8 @@
 import type { TFile, Vault } from "obsidian";
 
+import { parseMarkdownTasks } from "./parser";
 import { hashTaskLine, patchMarkdownTaskLine } from "./taskLine";
-import type { PendingMutationOperation, PendingOperation } from "./types";
+import type { PendingMutationOperation, PendingOperation, CrossNoteMoveJournal, WriteBackReceipt } from "./types";
 
 export class DainvoWriteBackConflict extends Error {
   constructor(message: string) {
@@ -10,35 +11,45 @@ export class DainvoWriteBackConflict extends Error {
   }
 }
 
+type WriteOptions = {
+  recoveringPreparedCreate?: boolean;
+  vaultIdentity?: { vaultId: string; vaultName: string };
+  moveJournal?: CrossNoteMoveJournal;
+  saveMoveJournal?(journal: CrossNoteMoveJournal): Promise<void>;
+};
 export async function applyOperationToVault(
   vault: Vault,
   operation: PendingOperation,
-  options: { recoveringPreparedCreate?: boolean } = {},
-): Promise<void> {
+  options: WriteOptions = {},
+): Promise<WriteBackReceipt | void> {
+  let notePath = operation.source.notePath;
+  let content: string;
   if (operation.operationType === "create") {
-    await createTaskInVault(vault, operation, options.recoveringPreparedCreate ?? false);
-    return;
+    content = await createTaskInVault(vault, operation, options.recoveringPreparedCreate ?? false);
+  } else if (operation.operationType === "move" && operation.hierarchyMove?.target && operation.hierarchyMove.target.notePath !== operation.source.notePath) {
+    notePath = operation.hierarchyMove.target.notePath;
+    content = await applyCrossNoteHierarchyMoveToVault(vault, operation, options);
+  } else {
+    const file = vault.getAbstractFileByPath(notePath);
+    if (!file || !isTFile(file)) throw new DainvoWriteBackConflict("Source note is missing.");
+    content = await vault.process(file, (value) => {
+      if (options.recoveringPreparedCreate && operation.source.blockId && ['update', 'complete', 'reopen'].includes(operation.operationType)) {
+        const lines = splitDocument(value).lines;
+        const matching = lines.filter((line) => new RegExp(`(?:^|\\s)\\^${escapeRegExp(operation.source.blockId!)}\\s*$`).test(line));
+        const expected = patchSourceTaskLine(operation.source.rawTaskLine, operation);
+        if (matching.length === 1 && matching[0] === expected) return value;
+      }
+      return applyOperationToContent(value, operation);
+    });
   }
-  if (
-    operation.operationType === "move" &&
-    operation.hierarchyMove?.target &&
-    operation.hierarchyMove.target.notePath !== operation.source.notePath
-  ) {
-    await applyCrossNoteHierarchyMoveToVault(vault, operation);
-    return;
-  }
-  const file = vault.getAbstractFileByPath(operation.source.notePath);
-
-  if (!file || !isTFile(file)) {
-    throw new DainvoWriteBackConflict("Source note is missing.");
-  }
-
-  await vault.process(file, (content) =>
-    applyOperationToContent(content, operation),
-  );
+  if (!options.vaultIdentity) return;
+  const candidates = operation.operationType === "delete" ? [] : parseMarkdownTasks({ ...options.vaultIdentity, notePath, content });
+  const writtenSource = operation.operationType === "delete" ? null : candidates.find((task) => operation.source.blockId ? task.blockId === operation.source.blockId : task.lineNumber === operation.source.lineNumber);
+  if (writtenSource === undefined) throw new DainvoWriteBackConflict("The written task anchor could not be verified.");
+  return { previousSource: { notePath: operation.source.notePath, lineHash: operation.source.lineHash }, writtenSource };
 }
 
-async function createTaskInVault(vault: Vault, operation: PendingOperation, recoveringPrepared: boolean): Promise<void> {
+async function createTaskInVault(vault: Vault, operation: PendingOperation, recoveringPrepared: boolean): Promise<string> {
   const intent = operation.create;
   if (!intent || intent.notePath !== operation.source.notePath || intent.blockId !== operation.source.blockId ||
     !/^[a-zA-Z0-9-]+$/.test(intent.blockId) || /[\r\n]/.test(intent.taskLine) ||
@@ -70,8 +81,9 @@ async function createTaskInVault(vault: Vault, operation: PendingOperation, reco
       }
     }
     try {
-      await vault.create(intent.notePath, append(intent.initialContent ?? ""));
-      return;
+      const content = append(intent.initialContent ?? "");
+      await vault.create(intent.notePath, content);
+      return content;
     } catch (error) {
       // Another writer may have created the note. Never replace its contents.
       file = vault.getAbstractFileByPath(intent.notePath);
@@ -79,7 +91,7 @@ async function createTaskInVault(vault: Vault, operation: PendingOperation, reco
     }
   }
   if (!isTFile(file)) throw new DainvoWriteBackConflict("The task destination is not a note.");
-  await vault.process(file, append);
+  return vault.process(file, append);
 }
 
 function appendTaskLineUnderHeading(content: string, sectionHeading: string, taskLine: string): string {
@@ -106,132 +118,58 @@ function appendTaskLineUnderHeading(content: string, sectionHeading: string, tas
 async function applyCrossNoteHierarchyMoveToVault(
   vault: Vault,
   operation: PendingOperation,
-): Promise<void> {
+  options: WriteOptions,
+): Promise<string> {
   const target = operation.hierarchyMove?.target;
-  if (!target || !operation.source.blockId || !target.blockId) {
-    throw new DainvoWriteBackConflict(
-      "Stable task markers are required for a cross-note move.",
-    );
-  }
+  const blockId = operation.source.blockId;
+  if (!target || !blockId || !target.blockId) throw new DainvoWriteBackConflict("Stable task markers are required for a cross-note move.");
   const sourceFile = vault.getAbstractFileByPath(operation.source.notePath);
   const targetFile = vault.getAbstractFileByPath(target.notePath);
-  if (!targetFile || !isTFile(targetFile)) {
-    throw new DainvoWriteBackConflict("Parent note is missing.");
+  if (!targetFile || !isTFile(targetFile)) throw new DainvoWriteBackConflict("Parent note is missing.");
+  let journal = options.moveJournal;
+  if (!journal) {
+    if (!sourceFile || !isTFile(sourceFile)) throw new DainvoWriteBackConflict("Source note is missing.");
+    const document = splitDocument(await vault.cachedRead(sourceFile));
+    const index = findSourceLineIndex(document.lines, operation.source);
+    if (index === -1) throw new DainvoWriteBackConflict("Task source changed before write-back.");
+    journal = { sourceBlockLines: extractTaskBlock(document.lines, index).lines, destinationWritten: false };
+    await options.saveMoveJournal?.(journal);
   }
-
-  if (!sourceFile || !isTFile(sourceFile)) {
-    throw new DainvoWriteBackConflict("Source note is missing.");
-  }
-
-  const sourceContent = await vault.cachedRead(sourceFile);
-  const sourceDocument = splitDocument(sourceContent);
-  const sourceIndex = findSourceLineIndex(
-    sourceDocument.lines,
-    operation.source,
-  );
-  const sourceBlock =
-    sourceIndex === -1
-      ? null
-      : extractTaskBlock(sourceDocument.lines, sourceIndex);
-  let insertedLines: string[] | null = null;
-  let inserted = false;
-  let destinationContainsSource = false;
-
-  await vault.process(targetFile, (content) => {
+  const saved = journal;
+  const targetContent = await vault.process(targetFile, (content) => {
     const document = splitDocument(content);
     const targetIndex = findSourceLineIndex(document.lines, target);
-    if (targetIndex === -1) {
-      throw new DainvoWriteBackConflict(
-        "Parent task changed before write-back.",
-      );
-    }
-    const existingDestinationIndex = findBlockIdLineInLines(
-      document.lines,
-      operation.source.blockId!,
-    );
-    if (existingDestinationIndex !== -1) {
-      assertExistingDestinationBlock({
-        lines: document.lines,
-        targetIndex,
-        sourceIndex: existingDestinationIndex,
-        sourceBlockLines: sourceBlock?.lines ?? null,
-        sourceRawTaskLine: operation.source.rawTaskLine,
-      });
-      destinationContainsSource = true;
+    if (targetIndex === -1) throw new DainvoWriteBackConflict("Parent task changed before write-back.");
+    const existing = findBlockIdLineInLines(document.lines, blockId);
+    if (existing !== -1) {
+      assertExistingDestinationBlock({ lines: document.lines, targetIndex, sourceIndex: existing, sourceBlockLines: saved.sourceBlockLines, sourceRawTaskLine: operation.source.rawTaskLine });
       return content;
     }
-    if (!sourceBlock) {
-      throw new DainvoWriteBackConflict(
-        "Task source changed before write-back.",
-      );
-    }
+    if (saved.destinationWritten) throw new DainvoWriteBackConflict("The moved destination task was removed after it was written.");
     const targetLine = document.lines[targetIndex] ?? "";
     const targetIndent = leadingWhitespace(targetLine);
     const targetColumns = countIndentColumns(targetLine);
-    let insertIndex = findTaskSubtreeEnd(
-      document.lines,
-      targetIndex,
-      targetColumns,
-    );
-    while (insertIndex > targetIndex + 1 && !document.lines[insertIndex - 1]?.trim())
-      insertIndex -= 1;
-    const indentUnit = findChildIndentUnit(
-      document.lines,
-      targetIndex,
-      insertIndex,
-      targetIndent,
-      targetColumns,
-    );
-    insertedLines = rebaseTaskBlock(
-      sourceBlock.lines,
-      `${targetIndent}${indentUnit}`,
-    );
-    document.lines.splice(insertIndex, 0, ...insertedLines);
-    inserted = true;
+    let insertIndex = findTaskSubtreeEnd(document.lines, targetIndex, targetColumns);
+    while (insertIndex > targetIndex + 1 && !document.lines[insertIndex - 1]?.trim()) insertIndex -= 1;
+    const indent = findChildIndentUnit(document.lines, targetIndex, insertIndex, targetIndent, targetColumns);
+    document.lines.splice(insertIndex, 0, ...rebaseTaskBlock(saved.sourceBlockLines, `${targetIndent}${indent}`));
     return joinLines(document.lines, document.eol, document.hadFinalNewline);
   });
-
-  if (!sourceBlock && destinationContainsSource) return;
-
-  try {
+  saved.destinationWritten = true;
+  await options.saveMoveJournal?.(saved);
+  if (sourceFile && isTFile(sourceFile)) {
     await vault.process(sourceFile, (content) => {
-      if (content !== sourceContent) {
-        throw new DainvoWriteBackConflict(
-          "Source note changed before deletion.",
-        );
-      }
       const document = splitDocument(content);
-      const currentIndex = findSourceLineIndex(document.lines, operation.source);
-      if (currentIndex === -1) {
-        throw new DainvoWriteBackConflict(
-          "Task source changed before deletion.",
-        );
-      }
-      const currentBlock = extractTaskBlock(document.lines, currentIndex);
-      document.lines.splice(
-        currentBlock.start,
-        currentBlock.end - currentBlock.start,
-      );
+      const index = findBlockIdLineInLines(document.lines, blockId);
+      if (index === -1) return content; // Saved full block + verified destination proves this replay's identity.
+      const block = extractTaskBlock(document.lines, index);
+      if (block.lines.length !== saved.sourceBlockLines.length || block.lines.some((line, offset) => line !== saved.sourceBlockLines[offset]))
+        throw new DainvoWriteBackConflict("The source task changed after the move was prepared. Review both notes before resolving this move.");
+      document.lines.splice(block.start, block.end - block.start);
       return joinLines(document.lines, document.eol, document.hadFinalNewline);
     });
-  } catch (error) {
-    if (inserted && insertedLines) {
-      try {
-        await vault.process(targetFile, (content) =>
-          removeExactInsertedBlock(
-            content,
-            operation.source.blockId!,
-            insertedLines!,
-          ),
-        );
-      } catch {
-        throw new Error(
-          "Source deletion failed and the destination copy could not be safely removed; the move will be retried.",
-        );
-      }
-    }
-    throw error;
   }
+  return targetContent;
 }
 
 function assertExistingDestinationBlock(input: {
@@ -301,23 +239,6 @@ function hasDirectTaskAncestor(
     if (columns <= targetColumns) return false;
   }
   return false;
-}
-
-function removeExactInsertedBlock(
-  content: string,
-  blockId: string,
-  expectedLines: readonly string[],
-): string {
-  const document = splitDocument(content);
-  const index = findBlockIdLineInLines(document.lines, blockId);
-  if (
-    index === -1 ||
-    expectedLines.some((line, offset) => document.lines[index + offset] !== line)
-  ) {
-    throw new Error("The inserted destination block changed.");
-  }
-  document.lines.splice(index, expectedLines.length);
-  return joinLines(document.lines, document.eol, document.hadFinalNewline);
 }
 
 function splitDocument(content: string): {
