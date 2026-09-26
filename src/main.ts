@@ -52,7 +52,8 @@ import {
   type StableIdMode,
 } from "./types";
 import { resolveVaultIdentity } from "./vaultIdentity";
-import { applyOperationToVault, DainvoWriteBackConflict } from "./writeBack";
+import { applyOperationToVault } from "./writeBack";
+import { processJournaledBridgeOperation } from "./bridgeOperationJournal";
 
 const SNAPSHOT_DEBOUNCE_MS = 1_500;
 const SNAPSHOT_RETRY_MS = 30_000;
@@ -193,6 +194,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       ...DEFAULT_SETTINGS,
       ...((await this.loadData()) as Partial<DainvoPluginSettings> | null),
     };
+    this.settings.bridgeOperationJournal ??= {};
   }
 
   async saveSettings(): Promise<void> {
@@ -238,7 +240,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       vaultPath: this.settings.vaultPath,
       vaultConfigDir: this.settings.vaultConfigDir,
       pluginVersion: this.manifest.version,
-      writeCapabilities: ["cross_note_hierarchy_move_v1"],
+      writeCapabilities: ["cross_note_hierarchy_move_v1", "task_create_v1"],
       dailyNoteSettings: await this.resolveDailyNoteSettings(),
       itemNoteSettings: this.resolveItemNoteSettings(),
       projectNoteSettings: this.resolveProjectNoteSettings(),
@@ -450,18 +452,13 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     try {
       const operations = await this.bridgeClient.listOperations();
       for (const operation of operations) {
-        try {
-          await applyOperationToVault(this.app.vault, operation);
-          await this.bridgeClient.ackOperation(operation.id, {
-            status: "succeeded",
-          });
-        } catch (error) {
-          await this.bridgeClient.ackOperation(operation.id, {
-            status:
-              error instanceof DainvoWriteBackConflict ? "conflict" : "failed",
-            error: formatError(error),
-          });
-        }
+        await processJournaledBridgeOperation({
+          operation,
+          journal: this.settings.bridgeOperationJournal,
+          save: () => this.saveSettings(),
+          apply: (queued, recoveringPrepared) => applyOperationToVault(this.app.vault, queued, { recoveringPreparedCreate: recoveringPrepared }),
+          acknowledge: (id, result) => this.bridgeClient.ackOperation(id, result),
+        });
       }
       if (operations.length > 0) {
         this.scheduleSnapshot();

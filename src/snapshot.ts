@@ -62,7 +62,7 @@ export async function buildSnapshotPayload(input: {
     itemNoteSettings: input.itemNoteSettings,
     projectNoteSettings: input.projectNoteSettings,
     exportedAt: new Date().toISOString(),
-    writeCapabilities: ["cross_note_hierarchy_move_v1"],
+    writeCapabilities: ["cross_note_hierarchy_move_v1", "task_create_v1"],
     tasks,
   };
 }

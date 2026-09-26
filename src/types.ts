@@ -100,6 +100,7 @@ export type DainvoPluginSettings = {
   futureTaskBaselineDeviceId: string;
   duplicateStableIdCount: number;
   cloudOperationJournal: Record<string, CloudOperationJournalEntry>;
+  bridgeOperationJournal: Record<string, { operation: PendingOperation; state: "prepared" | "written" }>;
 };
 
 export type DailyNoteSettings = {
@@ -270,7 +271,7 @@ export type CloudTaskProjection = {
 
 export type PendingMutationOperation = {
   id: string;
-  operationType: "update" | "delete" | "complete" | "reopen" | "move";
+  operationType: "create" | "update" | "delete" | "complete" | "reopen" | "move";
   task: {
     id: string;
     title: string;
@@ -281,6 +282,14 @@ export type PendingMutationOperation = {
   };
   source: ObsidianSnapshotTask;
   hierarchyMove?: ObsidianHierarchyMove;
+  create?: {
+    notePath: string;
+    blockId: string;
+    taskLine: string;
+    sectionHeading: string;
+    initialContent?: string;
+    createNoteIfMissing: boolean;
+  };
 };
 
 export type ObsidianHierarchyMoveTarget = Pick<
@@ -346,4 +355,5 @@ export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   futureTaskBaselineDeviceId: "",
   duplicateStableIdCount: 0,
   cloudOperationJournal: {},
+  bridgeOperationJournal: {},
 };

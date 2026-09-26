@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { hashTaskLine, parseMarkdownTasks } from "../src/parser";
 import {
@@ -12,6 +12,55 @@ import type {
 } from "../src/types";
 
 describe("applyOperationToContent", () => {
+  it("creates once using the persisted block identity while preserving intervening note edits", async () => {
+    const files = new Map([["Tasks.md", "# Journal\nUnrelated text\n"]]);
+    const process = vi.fn(async (file: { path: string }, update: (content: string) => string) => {
+      const content = update(files.get(file.path)!);
+      files.set(file.path, content);
+      return content;
+    });
+    const vault = { getAbstractFileByPath: (path: string) => files.has(path) ? { path, extension: "md" } : null, process } as unknown as import("obsidian").Vault;
+    const operation = makeOperation("- [ ] Created ^stable-create", { operationType: "create" });
+    operation.create = { notePath: "Tasks.md", blockId: "stable-create", taskLine: "- [ ] Created ^stable-create", sectionHeading: "## Dainvo", initialContent: "stale template", createNoteIfMissing: false };
+    await applyOperationToVault(vault, operation);
+    await applyOperationToVault(vault, operation);
+    expect(files.get("Tasks.md")).toBe("# Journal\nUnrelated text\n\n## Dainvo\n- [ ] Created ^stable-create\n");
+    files.set("Tasks.md", files.get("Tasks.md")!.replace("Created", "Edited outside Dainvo"));
+    await expect(applyOperationToVault(vault, operation)).rejects.toThrow("different content");
+    expect(files.get("Tasks.md")).toContain("Edited outside Dainvo");
+  });
+
+  it("preserves a note created by another writer between absence check and vault.create", async () => {
+    const files = new Map<string, string>();
+    const create = vi.fn(async (path: string, _content: string) => { files.set(path, "Other writer's note\n"); throw new Error("already exists"); });
+    const vault = {
+      getAbstractFileByPath: (path: string) => files.has(path) ? { path, extension: "md" } : null,
+      create,
+      process: async (file: { path: string }, update: (content: string) => string) => { const next = update(files.get(file.path)!); files.set(file.path, next); return next; },
+    } as unknown as import("obsidian").Vault;
+    const operation = makeOperation("- [ ] Created ^stable-create", { operationType: "create" });
+    operation.create = { notePath: "Tasks.md", blockId: "stable-create", taskLine: "- [ ] Created ^stable-create", sectionHeading: "## Dainvo", createNoteIfMissing: true };
+    await applyOperationToVault(vault, operation);
+    expect(files.get("Tasks.md")).toContain("Other writer's note");
+    expect(files.get("Tasks.md")).toContain("Created ^stable-create");
+    expect(create).toHaveBeenCalledOnce();
+  });
+
+  it("only reconciles the exact marker when recovering an uncertain create", async () => {
+    let content = "## Dainvo\n- [ ] Created ^stable-create\n";
+    const vault = {
+      getAbstractFileByPath: () => ({ path: "Tasks.md", extension: "md" }),
+      process: async (_file: unknown, update: (value: string) => string) => { content = update(content); return content; },
+    } as unknown as import("obsidian").Vault;
+    const operation = makeOperation("- [ ] Created ^stable-create", { operationType: "create" });
+    operation.create = { notePath: "Tasks.md", blockId: "stable-create", taskLine: "- [ ] Created ^stable-create", sectionHeading: "## Dainvo", createNoteIfMissing: true };
+    await applyOperationToVault(vault, operation, { recoveringPreparedCreate: true });
+    expect(content.match(/stable-create/g)).toHaveLength(1);
+    content = "User moved the task to another note.\n";
+    await expect(applyOperationToVault(vault, operation, { recoveringPreparedCreate: true })).rejects.toThrow("outcome is uncertain");
+    expect(content).toBe("User moved the task to another note.\n");
+  });
+
   it("updates title, tags, due date, priority, and preserves block id", () => {
     const content = "- [ ] Old title #old 📅 2026-06-01 ^abc\n";
     const operation = makeOperation(content, {

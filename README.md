@@ -48,6 +48,22 @@ previous vault.
 Obsidian needs to be running to send new changes and apply updates from Dainvo.
 Changes made offline will sync after your devices reconnect.
 
+## Desktop task write recovery
+
+New desktop task creates wait in Dainvo until a paired plugin advertising
+`task_create_v1` can apply them. Update the plugin if Dainvo asks for this
+capability. Keep Obsidian open to apply queued changes; closing it leaves the
+changes pending in Dainvo.
+
+The plugin edits existing notes through Obsidian's Vault API and saves a local
+operation receipt before acknowledging each write. If the acknowledgement is
+lost, it can acknowledge the saved receipt without repeating the edit. If the
+plugin stops before saving the receipt, a task create is recovered only when
+the exact task line and stable marker still exist. An absent or changed marker
+needs conflict review, so the plugin cannot recreate a task that was moved or
+removed after an interrupted write. This journal stays in the vault's plugin
+settings and is not uploaded to Dainvo mobile sync.
+
 ## About task markers
 
 Dainvo adds a short marker such as `^d-A7k2Pq` so it can recognize a task after

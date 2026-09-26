@@ -13,7 +13,12 @@ export class DainvoWriteBackConflict extends Error {
 export async function applyOperationToVault(
   vault: Vault,
   operation: PendingOperation,
+  options: { recoveringPreparedCreate?: boolean } = {},
 ): Promise<void> {
+  if (operation.operationType === "create") {
+    await createTaskInVault(vault, operation, options.recoveringPreparedCreate ?? false);
+    return;
+  }
   if (
     operation.operationType === "move" &&
     operation.hierarchyMove?.target &&
@@ -31,6 +36,71 @@ export async function applyOperationToVault(
   await vault.process(file, (content) =>
     applyOperationToContent(content, operation),
   );
+}
+
+async function createTaskInVault(vault: Vault, operation: PendingOperation, recoveringPrepared: boolean): Promise<void> {
+  const intent = operation.create;
+  if (!intent || intent.notePath !== operation.source.notePath || intent.blockId !== operation.source.blockId ||
+    !/^[a-zA-Z0-9-]+$/.test(intent.blockId) || /[\r\n]/.test(intent.taskLine) ||
+    !intent.taskLine.endsWith(`^${intent.blockId}`) ||
+    intent.notePath.startsWith("/") || intent.notePath.includes("\\") || intent.notePath.split("/").some((part) => !part || part === "." || part === ".."))
+    throw new DainvoWriteBackConflict("The task create identity is invalid.");
+  const append = (content: string): string => {
+    const lines = content.split(/\r?\n/);
+    const matching = lines.filter((line) => new RegExp(`(?:^|\\s)\\^${escapeRegExp(intent.blockId)}\\s*$`).test(line));
+    if (matching.length > 0) {
+      if (matching.length === 1 && matching[0]?.trim() === intent.taskLine.trim()) return content;
+      throw new DainvoWriteBackConflict("The created task marker already exists with different content.");
+    }
+    if (recoveringPrepared)
+      throw new DainvoWriteBackConflict("The earlier create outcome is uncertain and its task marker is absent. Refresh the vault before resolving this create.");
+    return appendTaskLineUnderHeading(content, intent.sectionHeading, intent.taskLine);
+  };
+  let file = vault.getAbstractFileByPath(intent.notePath);
+  if (!file) {
+    if (recoveringPrepared)
+      throw new DainvoWriteBackConflict("The earlier create outcome is uncertain and its destination note is absent.");
+    if (!intent.createNoteIfMissing) throw new DainvoWriteBackConflict("The task destination note was removed.");
+    const parts = intent.notePath.split("/");
+    for (let index = 1; index < parts.length; index += 1) {
+      const folder = parts.slice(0, index).join("/");
+      if (!vault.getAbstractFileByPath(folder)) {
+        try { await vault.createFolder(folder); }
+        catch (error) { if (!vault.getAbstractFileByPath(folder)) throw error; }
+      }
+    }
+    try {
+      await vault.create(intent.notePath, append(intent.initialContent ?? ""));
+      return;
+    } catch (error) {
+      // Another writer may have created the note. Never replace its contents.
+      file = vault.getAbstractFileByPath(intent.notePath);
+      if (!file) throw error;
+    }
+  }
+  if (!isTFile(file)) throw new DainvoWriteBackConflict("The task destination is not a note.");
+  await vault.process(file, append);
+}
+
+function appendTaskLineUnderHeading(content: string, sectionHeading: string, taskLine: string): string {
+  const document = splitDocument(content);
+  const heading = /^(#{1,6})\s+[^\r\n]+$/.test(sectionHeading.trim()) ? sectionHeading.trim() : "## Dainvo";
+  const headingIndex = document.lines.findIndex((line) => line.trim() === heading);
+  if (headingIndex === -1) {
+    while (document.lines.length && !document.lines.at(-1)?.trim()) document.lines.pop();
+    if (document.lines.length) document.lines.push("");
+    document.lines.push(heading, taskLine);
+    return document.lines.join(document.eol) + document.eol;
+  }
+  const level = heading.match(/^#+/)![0].length;
+  let insert = document.lines.length;
+  for (let index = headingIndex + 1; index < document.lines.length; index += 1) {
+    const match = document.lines[index]?.trim().match(/^(#{1,6})\s+.+/);
+    if (match && match[1].length <= level) { insert = index; break; }
+  }
+  while (insert > headingIndex + 1 && !document.lines[insert - 1]?.trim()) insert -= 1;
+  document.lines.splice(insert, 0, taskLine);
+  return joinLines(document.lines, document.eol, document.hadFinalNewline);
 }
 
 async function applyCrossNoteHierarchyMoveToVault(
@@ -274,6 +344,7 @@ export function applyOperationToContent(
   content: string,
   operation: PendingMutationOperation,
 ): string {
+  if (operation.operationType === "create") throw new DainvoWriteBackConflict("Use the vault task-create writer.");
   if (operation.operationType === "move") {
     if (!operation.hierarchyMove) {
       throw new DainvoWriteBackConflict(
