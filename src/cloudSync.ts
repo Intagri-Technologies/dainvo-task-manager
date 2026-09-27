@@ -244,6 +244,9 @@ export class ObsidianCloudSyncCoordinator {
       return null;
     }
     settings.cloudOwnerUserId ||= session.userId;
+    // Every request in this cycle must run as the owner checked above; a
+    // sign-in to another account mid-cycle must not publish into it.
+    this.cloud.bindOwner?.(settings.cloudOwnerUserId);
 
     const access = await this.cloud.getAccess();
     settings.cloudPlanName = access.plan_name ?? access.plan_slug ?? "";
@@ -620,7 +623,26 @@ export class ObsidianCloudSyncCoordinator {
       throw new CloudRelayError("stale_obsidian_publication", 409, false);
     }
 
-    const receipt = await this.cloud.pushSnapshot(intent);
+    let receipt;
+    try {
+      receipt = await this.cloud.pushSnapshot(intent);
+    } catch (error) {
+      if (
+        error instanceof CloudRelayError &&
+        error.code === "stale_obsidian_publication"
+      ) {
+        // The server replays an accepted publication before this check, so a
+        // stale answer means another publication took this sequence (another
+        // install or restored data). Drop the intent; the next cycle adopts
+        // the server's sequence and republishes in full.
+        settings.cloudPendingPublication = null;
+        settings.cloudPublishedDigests = {};
+        settings.cloudKnownPublishedTaskIds = [];
+        settings.cloudLastFullSyncAt = "";
+        await this.host.saveSettings();
+      }
+      throw error;
+    }
     if (
       receipt.publisher_epoch !== intent.publication.publisher_epoch ||
       receipt.publication_id !== intent.publication.publication_id ||
@@ -833,6 +855,8 @@ export class ObsidianCloudSyncCoordinator {
       settings.cloudStatus = "paused_signed_out";
     } else if (code.includes("requires_paid_plan")) {
       settings.cloudStatus = "paused_plan";
+    } else if (code === "account_changed") {
+      settings.cloudStatus = "paused_account";
     } else if (code === "not_publisher") {
       settings.cloudStatus = "paused_other_publisher";
     } else if (

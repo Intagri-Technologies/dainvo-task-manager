@@ -35,10 +35,17 @@ export class CloudRelayError extends Error {
   }
 }
 export class DainvoCloudClient {
+  private boundOwner: string | null = null;
+
   constructor(
     private readonly config: DainvoCloudConfig,
     private readonly oauth: DainvoOAuthClient,
   ) {}
+
+  /** Requests fail with `account_changed` unless the session is this user. */
+  bindOwner(userId: string | null): void {
+    this.boundOwner = userId || null;
+  }
 
   getAccess(): Promise<CloudSyncAccess> {
     return this.rpc<CloudSyncAccess>("get_my_obsidian_sync_access_v1");
@@ -150,6 +157,9 @@ export class DainvoCloudClient {
     const session = await this.oauth.getValidSession();
     if (!session) {
       throw new CloudRelayError("signed_out", 401, false);
+    }
+    if (this.boundOwner && session.userId !== this.boundOwner) {
+      throw new CloudRelayError("account_changed", 409, false);
     }
 
     let response;
