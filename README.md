@@ -215,3 +215,13 @@ remote notes. Creating another copy requires a duplicate warning and receives
 a new operation and block identity. These changes require a coordinated desktop
 and plugin release; mocked restart tests do not establish cross-process
 filesystem compare-and-swap guarantees.
+
+### Ordered publications and queued work
+
+The local desktop bridge and cloud publisher retain publication identity until acknowledgement. A lost reply replays the same publication; stale publishers cannot replace newer content. Task identity aliases remain saved after delivery acknowledgements.
+
+A deferred operation retains its retry deadline while independent targets continue. Cloud pending operations use a keyset cursor, so an old deferred task cannot occupy every batch. Source mutation still uses hash checks and `Vault.process`.
+
+Cloud publications retain the ordinary 300 active/700 completed window and carry up to 100 additional queued targets or ancestors per publication. Acknowledged sequence numbers rotate those retained batches across restart. Coverage reports how many targets are selected and omitted; window omission is distinct from source deletion. Desktop and plugin use the same stable-identity ordering, with completion time ordering for completed tasks.
+
+These clients require the additive pending-operation reader and retained-publication migrations before release. Older RPCs remain available for older clients.

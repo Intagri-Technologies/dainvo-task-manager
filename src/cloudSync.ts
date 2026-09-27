@@ -6,7 +6,10 @@ import { buildProviderTaskId, parseMarkdownTasks } from "./parser";
 import { sha256 } from "./sha256";
 import type { StableIdCoordinator } from "./stableIds";
 import type {
+  CloudOperationJournalEntry,
   CloudPendingOperation,
+  CloudPublicationCoverage,
+  CloudPublicationIntent,
   CloudPublisherVault,
   CloudTaskProjection,
   CloudVaultReplacementSummary,
@@ -19,6 +22,7 @@ import { applyOperationToVault, DainvoWriteBackConflict } from "./writeBack";
 const FULL_RECONCILIATION_MS = 6 * 60 * 60 * 1000;
 const MAX_ACTIVE_TASKS = 300;
 const MAX_COMPLETED_TASKS = 700;
+const CLOUD_OPERATION_BATCH_LIMIT = 100;
 const MIN_RETRY_MS = 30_000;
 const MAX_RETRY_MS = 15 * 60_000;
 
@@ -28,6 +32,7 @@ export type CloudSyncHost = {
   saveSettings(): Promise<void>;
   getDeviceId(): string;
   ensureBridgeIdentityAliasSupport(): Promise<void>;
+  requestCloudContinuation?(): void;
 };
 
 export class ObsidianCloudSyncCoordinator {
@@ -179,7 +184,12 @@ export class ObsidianCloudSyncCoordinator {
     settings.cloudVaultId = "";
     settings.cloudVaultKey = settings.vaultId;
     settings.cloudPublishedDigests = {};
+    settings.cloudKnownPublishedTaskIds = [];
+    settings.cloudPublisherEpoch = "";
+    settings.cloudPublicationSequence = 0;
+    settings.cloudPendingPublication = null;
     settings.cloudOperationJournal = {};
+    settings.cloudOperationContinuation = false;
     settings.cloudLastPublishedAt = "";
     settings.cloudLastFullSyncAt = "";
     settings.cloudStatus = "paused_other_publisher";
@@ -304,8 +314,13 @@ export class ObsidianCloudSyncCoordinator {
         throw new CloudRelayError("obsidian_active_vault_changed", 409, false);
       }
       settings.cloudPublishedDigests = {};
+      settings.cloudKnownPublishedTaskIds = [];
+      settings.cloudPublisherEpoch = "";
+      settings.cloudPublicationSequence = 0;
+      settings.cloudPendingPublication = null;
       settings.cloudOperationJournal = {};
       settings.cloudOperationBacklog = 0;
+      settings.cloudOperationContinuation = false;
       settings.cloudLastFullSyncAt = "";
       replacementSummary = {
         purgedTaskCount: publishResult.purged_task_count ?? 0,
@@ -313,6 +328,30 @@ export class ObsidianCloudSyncCoordinator {
       };
     }
     settings.cloudVaultId = publishedVault.id;
+    const remotePublisherEpoch =
+      publishResult.publication?.publisher_epoch ??
+      publishedVault.publisher_epoch ??
+      "";
+    const remotePublicationSequence =
+      publishResult.publication?.last_sequence ??
+      publishedVault.last_publication_sequence ??
+      0;
+    if (!remotePublisherEpoch) {
+      throw new CloudRelayError(
+        "obsidian_publisher_epoch_missing",
+        500,
+        true,
+      );
+    }
+    if (settings.cloudPublisherEpoch !== remotePublisherEpoch) {
+      settings.cloudPublisherEpoch = remotePublisherEpoch;
+      settings.cloudPublicationSequence = remotePublicationSequence;
+      settings.cloudPendingPublication = null;
+      settings.cloudPublishedDigests = {};
+      settings.cloudKnownPublishedTaskIds = [];
+    } else if (!settings.cloudPendingPublication) {
+      settings.cloudPublicationSequence = remotePublicationSequence;
+    }
 
     settings.cloudStatus = "normalizing_ids";
     await this.host.saveSettings();
@@ -335,12 +374,19 @@ export class ObsidianCloudSyncCoordinator {
 
     settings.cloudStatus = "publishing";
     await this.host.saveSettings();
-    await this.refreshTaskIndex(this.needsFullReconciliation());
-    await this.publishCurrentSnapshot(deviceId);
+    const fullReconciliation = this.needsFullReconciliation();
+    await this.refreshTaskIndex(fullReconciliation);
+    await this.publishCurrentSnapshot(deviceId, fullReconciliation);
 
     const operations = await this.cloud.listPendingOperations(
       settings.cloudVaultId,
+      settings.cloudOperationScanCursor,
     );
+    settings.cloudOperationContinuation =
+      operations.length >= CLOUD_OPERATION_BATCH_LIMIT;
+    const lastOperation = operations.at(-1);
+    settings.cloudOperationScanCursor = settings.cloudOperationContinuation && lastOperation?.requested_at
+      ? { requestedAt: lastOperation.requested_at, id: lastOperation.id } : null;
     for (const operation of operations) {
       settings.cloudOperationJournal[operation.operation_id] ??= {
         operation,
@@ -357,7 +403,7 @@ export class ObsidianCloudSyncCoordinator {
     if (operationResult.needsRepublish) {
       this.taskIndex.clear();
       await this.refreshTaskIndex(true);
-      await this.publishCurrentSnapshot(deviceId);
+      await this.publishCurrentSnapshot(deviceId, true);
     }
     if (operationResult.resolutions.length > 0) {
       await this.cloud.resolveOperations(operationResult.resolutions);
@@ -369,12 +415,23 @@ export class ObsidianCloudSyncCoordinator {
     settings.cloudOperationBacklog = Object.keys(
       settings.cloudOperationJournal,
     ).length;
-    settings.cloudStatus = "published";
+    const remaining = Object.values(settings.cloudOperationJournal);
+    const heads = new Map<string, CloudOperationJournalEntry>();
+    for (const entry of remaining.sort((left, right) => left.receivedAt.localeCompare(right.receivedAt))) {
+      if (!heads.has(entry.operation.provider_task_id)) heads.set(entry.operation.provider_task_id, entry);
+    }
+    const eligible = [...heads.values()].some((entry) => !entry.retryAt || Date.parse(entry.retryAt) <= Date.now());
+    settings.cloudOperationContinuation ||= eligible;
+    settings.cloudStatus = remaining.length ? "retryable_error" : "published";
     settings.cloudLastPublishedAt = new Date().toISOString();
     settings.cloudRetryAttempt = 0;
-    settings.cloudRetryAt = "";
-    settings.cloudLastErrorCode = "";
+    settings.cloudRetryAt = !settings.cloudOperationContinuation && remaining.length
+      ? remaining.map((entry) => entry.retryAt).filter((value): value is string => Boolean(value)).sort()[0] ?? "" : "";
+    settings.cloudLastErrorCode = remaining.length ? "publisher_operation_retry" : "";
     await this.host.saveSettings();
+    if (settings.cloudOperationContinuation) {
+      this.host.requestCloudContinuation?.();
+    }
     return replacementSummary;
   }
 
@@ -435,17 +492,30 @@ export class ObsidianCloudSyncCoordinator {
     );
   }
 
-  private selectedTasks(): ObsidianSnapshotTask[] {
-    return selectRelayTasks([...this.taskIndex.values()].flat());
-  }
-
   private taskOwners(): ObsidianSnapshotTask[] {
     return selectRelayTaskOwners([...this.taskIndex.values()].flat());
   }
 
-  private async publishCurrentSnapshot(deviceId: string): Promise<void> {
+  private async publishCurrentSnapshot(
+    deviceId: string,
+    sourceInventoryComplete: boolean,
+  ): Promise<void> {
     const settings = this.host.getSettings();
-    const selected = this.selectedTasks();
+    if (settings.cloudPendingPublication) {
+      await this.dispatchPublication(settings.cloudPendingPublication);
+      return;
+    }
+
+    const owners = this.taskOwners().filter((task) => task.isBlank !== true);
+    const retainedProviderTaskIds = Object.values(
+      settings.cloudOperationJournal,
+    ).map((entry) => entry.operation.provider_task_id);
+    const selection = selectRelayPublication(
+      owners,
+      retainedProviderTaskIds,
+      settings.cloudPublicationSequence,
+    );
+    const selected = selection.selected;
     const projections = selected.map((task) => this.toProjection(task));
     const nextDigests: Record<string, string> = {};
     const upserts: CloudTaskProjection[] = [];
@@ -462,32 +532,151 @@ export class ObsidianCloudSyncCoordinator {
       }
     }
 
+    const sourceIds = new Set(owners.map((task) => task.providerTaskId));
+    const knownPublishedIds = new Set([
+      ...settings.cloudKnownPublishedTaskIds,
+      ...Object.keys(settings.cloudPublishedDigests),
+    ]);
+    const removedProviderTaskIds = sourceInventoryComplete
+      ? [...knownPublishedIds]
+          .filter((providerTaskId) => !sourceIds.has(providerTaskId))
+          .sort()
+      : [];
+    for (const providerTaskId of removedProviderTaskIds) {
+      knownPublishedIds.delete(providerTaskId);
+    }
+    for (const projection of projections) {
+      knownPublishedIds.add(projection.provider_task_id);
+    }
+
+    const coverage: CloudPublicationCoverage = {
+      source_inventory_complete: sourceInventoryComplete,
+      ...(sourceInventoryComplete
+        ? {
+            source_inventory_digest: sha256(
+              JSON.stringify([...sourceIds].sort()),
+            ),
+          }
+        : {}),
+      active: selection.coverage.active,
+      completed: selection.coverage.completed,
+      retained_target_count: selection.retainedTargetCount,
+      retained: selection.coverage.retained,
+    };
     const publishedAt = new Date().toISOString();
-    await this.cloud.pushSnapshot({
+    const presentProviderTaskIds = projections.map(
+      (projection) => projection.provider_task_id,
+    );
+    const publicationPayload = {
+      upserts,
+      presentProviderTaskIds,
+      removedProviderTaskIds,
+      coverage,
+      publishedAt,
+    };
+    const intent: CloudPublicationIntent = {
       cloudVaultId: settings.cloudVaultId,
       deviceId,
+      publication: {
+        schema_version: 2,
+        publisher_epoch: settings.cloudPublisherEpoch,
+        publication_id: securePublicationId(),
+        sequence: settings.cloudPublicationSequence + 1,
+        base_sequence: settings.cloudPublicationSequence,
+        publication_digest: sha256(JSON.stringify(publicationPayload)),
+        capabilities: [
+          "ordered_publication",
+          "explicit_source_deletion",
+          "coverage_counts",
+        ],
+        coverage,
+        removed_provider_task_ids: removedProviderTaskIds,
+      },
       upserts,
-      presentProviderTaskIds: projections.map(
-        (projection) => projection.provider_task_id,
-      ),
+      presentProviderTaskIds,
       publishedAt,
-    });
+      nextPublishedDigests: nextDigests,
+      nextKnownPublishedTaskIds: [...knownPublishedIds].sort(),
+      acknowledgedAliasBlockIds: selected.flatMap((task) =>
+        task.blockId ? [task.blockId] : [],
+      ),
+    };
 
-    settings.cloudPublishedDigests = nextDigests;
-    settings.cloudLastPublishedAt = publishedAt;
-    for (const task of selected) {
-      if (!task.blockId) {
-        continue;
-      }
-      const alias = settings.identityAliases[task.blockId];
+    settings.cloudPendingPublication = intent;
+    await this.host.saveSettings();
+    await this.dispatchPublication(intent);
+  }
+
+  private async dispatchPublication(
+    intent: CloudPublicationIntent,
+  ): Promise<void> {
+    const settings = this.host.getSettings();
+    if (
+      intent.cloudVaultId !== settings.cloudVaultId ||
+      intent.publication.publisher_epoch !== settings.cloudPublisherEpoch
+    ) {
+      settings.cloudPendingPublication = null;
+      await this.host.saveSettings();
+      throw new CloudRelayError("stale_obsidian_publication", 409, false);
+    }
+
+    const receipt = await this.cloud.pushSnapshot(intent);
+    if (
+      receipt.publisher_epoch !== intent.publication.publisher_epoch ||
+      receipt.publication_id !== intent.publication.publication_id ||
+      receipt.sequence !== intent.publication.sequence ||
+      receipt.base_sequence !== intent.publication.base_sequence
+    ) {
+      throw new CloudRelayError(
+        "obsidian_publication_receipt_mismatch",
+        500,
+        true,
+      );
+    }
+
+    const previousPending = settings.cloudPendingPublication;
+    const previousDigests = settings.cloudPublishedDigests;
+    const previousKnownIds = settings.cloudKnownPublishedTaskIds;
+    const previousSequence = settings.cloudPublicationSequence;
+    const previousPublishedAt = settings.cloudLastPublishedAt;
+    const previousAliases = new Map(
+      intent.acknowledgedAliasBlockIds.map((blockId) => [
+        blockId,
+        settings.identityAliases[blockId]
+          ? { ...settings.identityAliases[blockId] }
+          : undefined,
+      ]),
+    );
+
+    settings.cloudPublishedDigests = intent.nextPublishedDigests;
+    settings.cloudKnownPublishedTaskIds = intent.nextKnownPublishedTaskIds;
+    settings.cloudPublicationSequence = intent.publication.sequence;
+    settings.cloudPendingPublication = null;
+    settings.cloudLastPublishedAt = intent.publishedAt;
+    for (const blockId of intent.acknowledgedAliasBlockIds) {
+      const alias = settings.identityAliases[blockId];
       if (alias?.cloudPending) {
         alias.cloudPending = false;
-        if (!alias.bridgePending) {
-          delete settings.identityAliases[task.blockId];
-        }
+
       }
     }
-    await this.host.saveSettings();
+    try {
+      await this.host.saveSettings();
+    } catch (error) {
+      settings.cloudPendingPublication = previousPending;
+      settings.cloudPublishedDigests = previousDigests;
+      settings.cloudKnownPublishedTaskIds = previousKnownIds;
+      settings.cloudPublicationSequence = previousSequence;
+      settings.cloudLastPublishedAt = previousPublishedAt;
+      for (const [blockId, alias] of previousAliases) {
+        if (alias) {
+          settings.identityAliases[blockId] = alias;
+        } else {
+          delete settings.identityAliases[blockId];
+        }
+      }
+      throw error;
+    }
   }
 
   private toProjection(task: ObsidianSnapshotTask): CloudTaskProjection {
@@ -542,10 +731,17 @@ export class ObsidianCloudSyncCoordinator {
     // published, so a flagged legacy duplicate can never receive write-back.
     const tasks = this.taskOwners();
 
+    const blockedTargets = new Set<string>();
+    let attempts = 0;
     for (const entry of Object.values(settings.cloudOperationJournal).sort(
       (left, right) => left.receivedAt.localeCompare(right.receivedAt),
     )) {
       const operation = entry.operation;
+      if (blockedTargets.has(operation.provider_task_id)) continue;
+      blockedTargets.add(operation.provider_task_id);
+      if (entry.retryAt && Date.parse(entry.retryAt) > Date.now()) continue;
+      if (attempts >= CLOUD_OPERATION_BATCH_LIMIT) break;
+      attempts += 1;
       const desiredStatus =
         operation.operation_type === "delete"
           ? null
@@ -617,8 +813,11 @@ export class ObsidianCloudSyncCoordinator {
           });
           continue;
         }
-        // Filesystem and temporary vault failures remain journaled for retry.
-        throw error;
+        // A failed file must not prevent independent targets from progressing.
+        entry.attempts = (entry.attempts ?? 0) + 1;
+        entry.retryAt = new Date(Date.now() + Math.min(900_000, 5_000 * 2 ** Math.min(entry.attempts - 1, 8))).toISOString();
+        entry.lastErrorCode = "publisher_write_failed";
+        await this.host.saveSettings();
       }
     }
     return { needsRepublish, resolutions };
@@ -682,6 +881,96 @@ export function selectRelayTasks(
     })
     .slice(0, MAX_COMPLETED_TASKS);
   return [...active, ...completed];
+}
+
+export function selectRelayPublication(
+  tasks: readonly ObsidianSnapshotTask[],
+  retainedProviderTaskIds: readonly string[] = [],
+  publicationSequence = 0,
+): {
+  selected: ObsidianSnapshotTask[];
+  coverage: Pick<CloudPublicationCoverage, "active" | "completed" | "retained">;
+  retainedTargetCount: number;
+} {
+  const owners = selectRelayTaskOwners(tasks).filter(
+    (task) => task.isBlank !== true,
+  );
+  const byProviderTaskId = new Map(
+    owners.map((task) => [task.providerTaskId, task]),
+  );
+  const retained = new Set<string>();
+  for (const providerTaskId of retainedProviderTaskIds) {
+    let current = byProviderTaskId.get(providerTaskId);
+    const visited = new Set<string>();
+    while (current && !visited.has(current.providerTaskId)) {
+      visited.add(current.providerTaskId);
+      retained.add(current.providerTaskId);
+      current = current.parentProviderTaskId
+        ? byProviderTaskId.get(current.parentProviderTaskId)
+        : undefined;
+    }
+  }
+
+  const selectStatus = (
+    status: "open" | "completed",
+    limit: number,
+  ): ObsidianSnapshotTask[] => {
+    const ordered = owners
+      .filter((task) => task.status === status)
+      .sort(
+        status === "open"
+          ? comparePublicationIdentity
+          : (left, right) => {
+              const dateOrder = (right.completedAt ?? "").localeCompare(
+                left.completedAt ?? "",
+              );
+              return dateOrder || comparePublicationIdentity(left, right);
+            },
+      );
+    return ordered.slice(0, limit);
+  };
+
+  const active = selectStatus("open", MAX_ACTIVE_TASKS);
+  const completed = selectStatus("completed", MAX_COMPLETED_TASKS);
+  const ordinary = [...active, ...completed];
+  const ordinaryIds = new Set(ordinary.map((task) => task.providerTaskId));
+  const retainedOutside = owners.filter((task) => retained.has(task.providerTaskId) &&
+    !ordinaryIds.has(task.providerTaskId)).sort(comparePublicationIdentity);
+  const start = retainedOutside.length === 0 ? 0 :
+    (Math.max(0, Math.floor(publicationSequence)) * 100) % retainedOutside.length;
+  const extra = Array.from({ length: Math.min(100, retainedOutside.length) },
+    (_, index) => retainedOutside[(start + index) % retainedOutside.length]);
+  const selected = [...ordinary, ...extra];
+  const activeSelected = selected.filter((task) => task.status === "open").length;
+  const completedSelected = selected.length - activeSelected;
+  const selectedRetained = selected.filter((task) =>
+    retained.has(task.providerTaskId),
+  ).length;
+  const activeEligible = owners.filter((task) => task.status === "open").length;
+  const completedEligible = owners.length - activeEligible;
+
+  return {
+    selected,
+    coverage: {
+      retained: {
+        eligible_count: retainedOutside.length,
+        selected_count: extra.length,
+        omitted_count: retainedOutside.length - extra.length,
+        provider_task_ids: extra.map((task) => task.providerTaskId),
+      },
+      active: {
+        eligible_count: activeEligible,
+        selected_count: activeSelected,
+        omitted_count: activeEligible - activeSelected,
+      },
+      completed: {
+        eligible_count: completedEligible,
+        selected_count: completedSelected,
+        omitted_count: completedEligible - completedSelected,
+      },
+    },
+    retainedTargetCount: selectedRetained,
+  };
 }
 
 export function selectRelayTaskOwners(
@@ -788,9 +1077,14 @@ function isMarkdownFile(file: unknown): file is TFile {
 function clearCloudMapping(settings: DainvoPluginSettings): void {
   settings.cloudVaultId = "";
   settings.cloudVaultKey = settings.vaultId;
+  settings.cloudPublisherEpoch = "";
+  settings.cloudPublicationSequence = 0;
+  settings.cloudPendingPublication = null;
+  settings.cloudKnownPublishedTaskIds = [];
   settings.cloudPublishedDigests = {};
   settings.cloudOperationJournal = {};
   settings.cloudOperationBacklog = 0;
+  settings.cloudOperationContinuation = false;
   settings.cloudLastPublishedAt = "";
   settings.cloudLastFullSyncAt = "";
   settings.cloudRetryAttempt = 0;
@@ -804,11 +1098,23 @@ function pinCloudVaultIdentity(settings: DainvoPluginSettings): void {
   }
   settings.cloudVaultKey = settings.vaultId;
   settings.cloudVaultId = "";
+  settings.cloudPublisherEpoch = "";
+  settings.cloudPublicationSequence = 0;
+  settings.cloudPendingPublication = null;
+  settings.cloudKnownPublishedTaskIds = [];
   settings.cloudPublishedDigests = {};
   settings.cloudOperationJournal = {};
   settings.cloudOperationBacklog = 0;
+  settings.cloudOperationContinuation = false;
   settings.cloudLastPublishedAt = "";
   settings.cloudLastFullSyncAt = "";
+}
+
+function securePublicationId(): string {
+  if (typeof activeWindow.crypto?.randomUUID !== "function") {
+    throw new Error("Secure publication ID generation is unavailable.");
+  }
+  return activeWindow.crypto.randomUUID();
 }
 
 export function selectActiveCloudVault(
@@ -874,4 +1180,8 @@ function safeErrorCode(error: unknown): string {
     return normalized.replace(/\s+/g, "_").slice(0, 120) || "unknown_error";
   }
   return "unknown_error";
+}
+
+function comparePublicationIdentity(left: ObsidianSnapshotTask, right: ObsidianSnapshotTask): number {
+  return left.providerTaskId < right.providerTaskId ? -1 : left.providerTaskId > right.providerTaskId ? 1 : 0;
 }

@@ -43,6 +43,7 @@ import { dainvoStableIdVisibilityExtension } from "./stableIdVisibility";
 import { parseTaskLine } from "./taskLine";
 import {
   DEFAULT_SETTINGS,
+  isCloudPublicationIntent,
   type CloudPublisherVault,
   type CloudVaultReplacementSummary,
   type DailyNoteSettings,
@@ -104,6 +105,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         getDeviceId: () => this.secureStore.getOrCreateDeviceId(),
         ensureBridgeIdentityAliasSupport: () =>
           this.ensureBridgeIdentityAliasSupport(),
+        requestCloudContinuation: () => this.scheduleCloudSync(),
       },
       this.oauthClient,
       cloudClient,
@@ -195,6 +197,20 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       ...((await this.loadData()) as Partial<DainvoPluginSettings> | null),
     };
     this.settings.bridgeOperationJournal ??= {};
+    this.settings.cloudPendingPublication = isCloudPublicationIntent(
+      this.settings.cloudPendingPublication,
+    )
+      ? this.settings.cloudPendingPublication
+      : null;
+    this.settings.cloudPublisherEpoch ??= "";
+    this.settings.cloudPublicationSequence ??= 0;
+    this.settings.cloudOperationContinuation =
+      this.settings.cloudOperationContinuation === true;
+    this.settings.cloudKnownPublishedTaskIds = Array.isArray(
+      this.settings.cloudKnownPublishedTaskIds,
+    )
+      ? this.settings.cloudKnownPublishedTaskIds
+      : [];
   }
 
   async saveSettings(): Promise<void> {
@@ -240,12 +256,15 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       vaultPath: this.settings.vaultPath,
       vaultConfigDir: this.settings.vaultConfigDir,
       pluginVersion: this.manifest.version,
-      writeCapabilities: ["cross_note_hierarchy_move_v1", "task_create_v1", "write_receipt_v1"],
+      writeCapabilities: ["cross_note_hierarchy_move_v1", "task_create_v1", "write_receipt_v1", "publication_v2"],
       dailyNoteSettings: await this.resolveDailyNoteSettings(),
       itemNoteSettings: this.resolveItemNoteSettings(),
       projectNoteSettings: this.resolveProjectNoteSettings(),
     });
 
+    this.settings.localPublisherEpoch = result.publisherEpoch;
+    this.settings.localPublicationSequence = 0;
+    this.settings.localPendingPublication = null;
     this.settings.accountId = result.accountId;
     this.settings.bridgeBaseUrl = result.baseUrl;
     this.settings.desktopDeepLinkScheme = normalizeDeepLinkScheme(
@@ -401,7 +420,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     this.isSnapshotInFlight = true;
     try {
       await this.ensureVaultIdentity();
-      const payload = await buildSnapshotPayload({
+      const payload = this.settings.localPendingPublication ?? await buildSnapshotPayload({
         vault: this.app.vault,
         pluginVersion: this.manifest.version,
         settings: this.settings,
@@ -409,15 +428,20 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         itemNoteSettings: this.resolveItemNoteSettings(),
         projectNoteSettings: this.resolveProjectNoteSettings(),
       });
+      if (this.settings.localPublisherEpoch && !payload.publication) {
+        const baseSequence = this.settings.localPublicationSequence ?? 0;
+        payload.publication = { version: 2, epoch: this.settings.localPublisherEpoch,
+          sequence: baseSequence + 1, baseSequence, id: crypto.randomUUID(), completeInventory: true };
+      }
+      this.settings.localPendingPublication = payload;
+      await this.saveSettings();
       await this.bridgeClient.postSnapshot(payload);
-      for (const [blockId, alias] of Object.entries(
-        this.settings.identityAliases,
-      )) {
-        if (alias.bridgePending) {
+      this.settings.localPublicationSequence = payload.publication?.sequence ?? 0;
+      this.settings.localPendingPublication = null;
+      const publishedAliases = new Set(payload.tasks.filter((task) => task.previousProviderTaskId).map((task) => task.blockId));
+      for (const alias of Object.values(this.settings.identityAliases)) {
+        if (alias.bridgePending && publishedAliases.has(alias.blockId)) {
           alias.bridgePending = false;
-          if (!alias.cloudPending) {
-            delete this.settings.identityAliases[blockId];
-          }
         }
       }
       this.settings.lastSnapshotAt = payload.exportedAt;
@@ -905,9 +929,14 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       // Clear that binding and require an explicit account-wide replacement;
       // never infer identity from the display name or filesystem path.
       this.settings.cloudVaultId = "";
+      this.settings.cloudPublisherEpoch = "";
+      this.settings.cloudPublicationSequence = 0;
+      this.settings.cloudPendingPublication = null;
+      this.settings.cloudKnownPublishedTaskIds = [];
       this.settings.cloudPublishedDigests = {};
       this.settings.cloudOperationJournal = {};
       this.settings.cloudOperationBacklog = 0;
+      this.settings.cloudOperationContinuation = false;
       this.settings.cloudLastPublishedAt = "";
       this.settings.cloudLastFullSyncAt = "";
       this.settings.cloudRetryAttempt = 0;

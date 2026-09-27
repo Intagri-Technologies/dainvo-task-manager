@@ -4,6 +4,7 @@ import { assertCloudConfig, type DainvoCloudConfig } from "./runtimeConfig";
 import type { DainvoOAuthClient } from "./oauthClient";
 import type {
   CloudPendingOperation,
+  CloudPublicationEnvelope,
   CloudPublisherVault,
   CloudSyncAccess,
   CloudTaskProjection,
@@ -12,6 +13,11 @@ import type {
 
 export type CloudPublishVaultResult = {
   vault: CloudPublisherVault;
+  publication?: {
+    protocol_version: 2;
+    publisher_epoch: string;
+    last_sequence: number;
+  };
   active_vault_id?: string | null;
   replaced_vault_id?: string | null;
   purged_task_count?: number;
@@ -53,7 +59,7 @@ export class DainvoCloudClient {
     takeover: boolean;
     replaceVaultId?: string;
   }): Promise<CloudPublishVaultResult> {
-    return this.rpc<CloudPublishVaultResult>("publish_my_obsidian_vault_v1", {
+    return this.rpc<CloudPublishVaultResult>("publish_my_obsidian_vault_v2", {
       p_vault: {
         vault_id: input.vaultId,
         vault_name: input.vaultName,
@@ -72,19 +78,29 @@ export class DainvoCloudClient {
   pushSnapshot(input: {
     cloudVaultId: string;
     deviceId: string;
+    publication: CloudPublicationEnvelope;
     upserts: CloudTaskProjection[];
     presentProviderTaskIds: string[];
     publishedAt: string;
   }): Promise<{
     upserted_count: number;
-    deleted_count: number;
+    deleted_count?: number;
     migrated_identity_count?: number;
     active_task_count: number;
     completed_task_count: number;
+    publication_schema_version: 2;
+    publisher_epoch: string;
+    publication_id: string;
+    sequence: number;
+    base_sequence: number;
+    source_deleted_count: number;
+    window_evicted_count: number;
+    retained_target_count: number;
   }> {
-    return this.rpc("push_my_obsidian_snapshot_v1", {
+    return this.rpc("push_my_obsidian_snapshot_v2", {
       p_vault_id: input.cloudVaultId,
       p_device_id: input.deviceId,
+      p_publication: input.publication,
       p_upserts: input.upserts,
       p_present_provider_task_ids: input.presentProviderTaskIds,
       p_vault_status: "online",
@@ -94,10 +110,12 @@ export class DainvoCloudClient {
 
   async listPendingOperations(
     cloudVaultId: string,
+    cursor?: { requestedAt: string; id: string } | null,
   ): Promise<CloudPendingOperation[]> {
     const result = await this.rpc<{ operations: CloudPendingOperation[] }>(
-      "list_my_obsidian_pending_operations_v1",
-      { p_vault_id: cloudVaultId, p_limit: 100 },
+      "list_my_obsidian_pending_operations_v2",
+      { p_vault_id: cloudVaultId, p_limit: 100,
+        p_after_requested_at: cursor?.requestedAt ?? null, p_after_id: cursor?.id ?? null },
     );
     return Array.isArray(result.operations) ? result.operations : [];
   }

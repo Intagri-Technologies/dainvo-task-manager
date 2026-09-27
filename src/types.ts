@@ -49,12 +49,19 @@ export type FutureTaskIndexEntry = {
 };
 
 export type CloudOperationJournalEntry = {
+  retryAt?: string;
+  attempts?: number;
+  lastErrorCode?: string;
   operation: CloudPendingOperation;
   state: "pending_write" | "written_pending_publish";
   receivedAt: string;
 };
 
 export type DainvoPluginSettings = {
+  cloudOperationScanCursor?: { requestedAt: string; id: string } | null;
+  localPublisherEpoch?: string;
+  localPublicationSequence?: number;
+  localPendingPublication?: ObsidianSnapshotPayload | null;
   bridgeBaseUrl: string;
   pairingCode: string;
   bearerToken: string;
@@ -91,8 +98,14 @@ export type DainvoPluginSettings = {
   cloudLastFullSyncAt: string;
   cloudLastErrorCode: string;
   cloudOperationBacklog: number;
+  /** A full publisher page was received and another durable drain is required. */
+  cloudOperationContinuation: boolean;
   cloudRetryAttempt: number;
   cloudRetryAt: string;
+  cloudPublisherEpoch: string;
+  cloudPublicationSequence: number;
+  cloudPendingPublication: CloudPublicationIntent | null;
+  cloudKnownPublishedTaskIds: string[];
   cloudPublishedDigests: Record<string, string>;
   stableIdJournal: StableIdJournal | null;
   identityAliases: Record<string, IdentityAliasRecord>;
@@ -163,6 +176,7 @@ export type ParsedTaskCandidate = {
 };
 
 export type ObsidianSnapshotPayload = {
+  publication?: { version: 2; epoch: string; sequence: number; baseSequence: number; id: string; completeInventory: true };
   schemaVersion: 2;
   pluginVersion: string;
   vaultId: string;
@@ -178,6 +192,7 @@ export type ObsidianSnapshotPayload = {
 };
 
 export type PairResult = {
+  publisherEpoch?: string;
   accountId: string;
   token: string;
   baseUrl: string;
@@ -232,7 +247,181 @@ export type CloudPublisherVault = {
   connection_status: "online" | "offline" | "stale";
   last_published_at: string | null;
   server_version: number;
+  publication_protocol_version?: number;
+  publisher_epoch?: string | null;
+  last_publication_sequence?: number;
+  publication_capabilities?: string[];
+  publication_coverage?: CloudPublicationCoverage;
 };
+
+export type CloudPublicationCount = {
+  eligible_count: number;
+  selected_count: number;
+  omitted_count: number;
+};
+
+export type CloudPublicationCoverage = {
+  source_inventory_complete: boolean;
+  source_inventory_digest?: string;
+  active: CloudPublicationCount;
+  completed: CloudPublicationCount;
+  retained_target_count: number;
+  retained?: CloudPublicationCount & { provider_task_ids: string[] };
+};
+
+export type CloudPublicationEnvelope = {
+  schema_version: 2;
+  publisher_epoch: string;
+  publication_id: string;
+  sequence: number;
+  base_sequence: number;
+  publication_digest: string;
+  capabilities: readonly [
+    "ordered_publication",
+    "explicit_source_deletion",
+    "coverage_counts",
+  ];
+  coverage: CloudPublicationCoverage;
+  removed_provider_task_ids: string[];
+};
+
+export type CloudPublicationIntent = {
+  cloudVaultId: string;
+  deviceId: string;
+  publication: CloudPublicationEnvelope;
+  upserts: CloudTaskProjection[];
+  presentProviderTaskIds: string[];
+  publishedAt: string;
+  nextPublishedDigests: Record<string, string>;
+  nextKnownPublishedTaskIds: string[];
+  acknowledgedAliasBlockIds: string[];
+};
+
+export function isCloudPublicationIntent(
+  value: unknown,
+): value is CloudPublicationIntent {
+  if (!isRecord(value) || !isNonEmptyString(value.cloudVaultId)) return false;
+  if (!isNonEmptyString(value.deviceId) || !isRecord(value.publication)) {
+    return false;
+  }
+
+  const publication = value.publication;
+  if (
+    publication.schema_version !== 2 ||
+    !isNonEmptyString(publication.publisher_epoch) ||
+    !isNonEmptyString(publication.publication_id) ||
+    !isNonNegativeInteger(publication.sequence) ||
+    !isNonNegativeInteger(publication.base_sequence) ||
+    publication.sequence !== publication.base_sequence + 1 ||
+    !isNonEmptyString(publication.publication_digest) ||
+    !isCloudPublicationCoverage(publication.coverage) ||
+    !isStringArray(publication.removed_provider_task_ids)
+  ) {
+    return false;
+  }
+
+  if (
+    !Array.isArray(publication.capabilities) ||
+    publication.capabilities.length !== 3 ||
+    publication.capabilities[0] !== "ordered_publication" ||
+    publication.capabilities[1] !== "explicit_source_deletion" ||
+    publication.capabilities[2] !== "coverage_counts"
+  ) {
+    return false;
+  }
+
+  return (
+    Array.isArray(value.upserts) &&
+    value.upserts.every(isCloudTaskProjection) &&
+    isStringArray(value.presentProviderTaskIds) &&
+    isNonEmptyString(value.publishedAt) &&
+    isStringRecord(value.nextPublishedDigests) &&
+    isStringArray(value.nextKnownPublishedTaskIds) &&
+    isStringArray(value.acknowledgedAliasBlockIds)
+  );
+}
+
+function isCloudPublicationCoverage(
+  value: unknown,
+): value is CloudPublicationCoverage {
+  if (!isRecord(value) || typeof value.source_inventory_complete !== "boolean") {
+    return false;
+  }
+  if (
+    value.source_inventory_digest !== undefined &&
+    typeof value.source_inventory_digest !== "string"
+  ) {
+    return false;
+  }
+  return (
+    isCloudPublicationCount(value.active) &&
+    isCloudPublicationCount(value.completed) &&
+    isNonNegativeInteger(value.retained_target_count) &&
+    (value.retained === undefined || isRetainedPublicationCoverage(value.retained))
+  );
+}
+
+function isRetainedPublicationCoverage(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const ids = value.provider_task_ids;
+  return isCloudPublicationCount(value) && Array.isArray(ids) &&
+    value.selected_count <= 100 && ids.length === value.selected_count &&
+    ids.every(isNonEmptyString) && new Set(ids).size === value.selected_count;
+}
+
+function isCloudPublicationCount(value: unknown): value is CloudPublicationCount {
+  return (
+    isRecord(value) &&
+    isNonNegativeInteger(value.eligible_count) &&
+    isNonNegativeInteger(value.selected_count) &&
+    isNonNegativeInteger(value.omitted_count) &&
+    value.selected_count + value.omitted_count === value.eligible_count
+  );
+}
+
+function isCloudTaskProjection(value: unknown): value is CloudTaskProjection {
+  return (
+    isRecord(value) &&
+    isNonEmptyString(value.provider_task_id) &&
+    (value.parent_provider_task_id === null ||
+      typeof value.parent_provider_task_id === "string") &&
+    isNonNegativeInteger(value.sibling_order) &&
+    isNonNegativeInteger(value.indent_columns) &&
+    typeof value.title === "string" &&
+    (value.status === "open" || value.status === "completed") &&
+    typeof value.priority === "number" &&
+    isStringArray(value.labels) &&
+    (value.due_at === null || typeof value.due_at === "string") &&
+    (value.completed_at === null || typeof value.completed_at === "string") &&
+    typeof value.note_path === "string" &&
+    (value.note_title === null || typeof value.note_title === "string") &&
+    (value.heading === null || typeof value.heading === "string") &&
+    typeof value.open_uri === "string"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
 
 export type CloudVaultReplacementSummary = {
   purgedTaskCount: number;
@@ -240,6 +429,7 @@ export type CloudVaultReplacementSummary = {
 };
 
 export type CloudPendingOperation = {
+  requested_at?: string;
   id: string;
   operation_id: string;
   operation_type: "complete" | "reopen" | "delete";
@@ -355,8 +545,13 @@ export const DEFAULT_SETTINGS: DainvoPluginSettings = {
   cloudLastFullSyncAt: "",
   cloudLastErrorCode: "",
   cloudOperationBacklog: 0,
+  cloudOperationContinuation: false,
   cloudRetryAttempt: 0,
   cloudRetryAt: "",
+  cloudPublisherEpoch: "",
+  cloudPublicationSequence: 0,
+  cloudPendingPublication: null,
+  cloudKnownPublishedTaskIds: [],
   cloudPublishedDigests: {},
   stableIdJournal: null,
   identityAliases: {},
