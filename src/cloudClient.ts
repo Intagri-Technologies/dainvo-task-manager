@@ -24,6 +24,17 @@ export type CloudPublishVaultResult = {
   discarded_operation_count?: number;
 };
 
+export type CloudOperationResolveResult = {
+  resolved: number;
+  skipped: number;
+  /** One entry per submitted resolution; every outcome is final. */
+  results?: Array<{
+    operation_id: string;
+    outcome: "resolved" | "already_resolved" | "not_found";
+    status: "pending" | "applied" | "conflict" | "rejected" | null;
+  }>;
+};
+
 export class CloudRelayError extends Error {
   constructor(
     readonly code: string,
@@ -115,27 +126,45 @@ export class DainvoCloudClient {
     });
   }
 
-  async listPendingOperations(
-    cloudVaultId: string,
-    cursor?: { requestedAt: string; id: string } | null,
-  ): Promise<CloudPendingOperation[]> {
+  /**
+   * Publication v2 operation drain, fenced to this install's device id and
+   * publisher epoch. A retired publisher gets `stale_obsidian_publisher`.
+   */
+  async listPendingOperations(input: {
+    cloudVaultId: string;
+    deviceId: string;
+    publisherEpoch: string;
+    cursor?: { requestedAt: string; id: string } | null;
+  }): Promise<CloudPendingOperation[]> {
     const result = await this.rpc<{ operations: CloudPendingOperation[] }>(
-      "list_my_obsidian_pending_operations_v2",
-      { p_vault_id: cloudVaultId, p_limit: 100,
-        p_after_requested_at: cursor?.requestedAt ?? null, p_after_id: cursor?.id ?? null },
+      "list_my_obsidian_pending_operations_v3",
+      {
+        p_vault_id: input.cloudVaultId,
+        p_device_id: input.deviceId,
+        p_publisher_epoch: input.publisherEpoch,
+        p_limit: 100,
+        p_after_requested_at: input.cursor?.requestedAt ?? null,
+        p_after_id: input.cursor?.id ?? null,
+      },
     );
     return Array.isArray(result.operations) ? result.operations : [];
   }
 
-  resolveOperations(
+  resolveOperations(input: {
+    cloudVaultId: string;
+    deviceId: string;
+    publisherEpoch: string;
     resolutions: Array<{
       operation_id: string;
       status: "applied" | "conflict" | "rejected";
       result?: Record<string, unknown>;
-    }>,
-  ): Promise<{ resolved: number; skipped: number }> {
-    return this.rpc("resolve_my_obsidian_operations_v1", {
-      p_resolutions: resolutions,
+    }>;
+  }): Promise<CloudOperationResolveResult> {
+    return this.rpc("resolve_my_obsidian_operations_v2", {
+      p_vault_id: input.cloudVaultId,
+      p_device_id: input.deviceId,
+      p_publisher_epoch: input.publisherEpoch,
+      p_resolutions: input.resolutions,
     });
   }
 

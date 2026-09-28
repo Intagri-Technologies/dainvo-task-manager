@@ -153,4 +153,92 @@ describe("DainvoCloudClient", () => {
       expect.objectContaining({ p_publication: publication }),
     );
   });
+
+  it("sends the publisher fence to the v3 list and v2 resolve RPCs", async () => {
+    requestUrl.mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({ operations: [], resolved: 0, skipped: 0, results: [] }),
+    });
+    const client = new DainvoCloudClient(
+      {
+        supabaseUrl: "https://example.supabase.co",
+        publishableKey: "sb_publishable_test",
+        oauthClientId: "client-id",
+        oauthRedirectUri: "https://users.dainvo.com/auth/obsidian-callback",
+      },
+      {
+        getValidSession: vi.fn(async () => ({
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          expiresAt: Date.now() + 60_000,
+          userId: "user-id",
+        })),
+      } as never,
+    );
+    const fence = {
+      cloudVaultId: "cloud-vault",
+      deviceId: "device-id",
+      publisherEpoch: "publisher-epoch",
+    };
+
+    await client.listPendingOperations({
+      ...fence,
+      cursor: { requestedAt: "2026-09-28T10:00:00.000Z", id: "row-1" },
+    });
+    await client.resolveOperations({
+      ...fence,
+      resolutions: [{ operation_id: "operation-1", status: "applied" }],
+    });
+
+    const [list, resolve] = requestUrl.mock.calls.map(
+      (call) => call[0] as { url: string; body: string },
+    );
+    expect(list.url).toContain("/rpc/list_my_obsidian_pending_operations_v3");
+    expect(JSON.parse(list.body)).toEqual({
+      p_vault_id: "cloud-vault",
+      p_device_id: "device-id",
+      p_publisher_epoch: "publisher-epoch",
+      p_limit: 100,
+      p_after_requested_at: "2026-09-28T10:00:00.000Z",
+      p_after_id: "row-1",
+    });
+    expect(resolve.url).toContain("/rpc/resolve_my_obsidian_operations_v2");
+    expect(JSON.parse(resolve.body)).toEqual({
+      p_vault_id: "cloud-vault",
+      p_device_id: "device-id",
+      p_publisher_epoch: "publisher-epoch",
+      p_resolutions: [{ operation_id: "operation-1", status: "applied" }],
+    });
+  });
+
+  it("surfaces a stale publisher as a non-retryable relay error code", async () => {
+    requestUrl.mockResolvedValue({
+      status: 400,
+      text: JSON.stringify({ code: "P0001", message: "stale_obsidian_publisher" }),
+    });
+    const client = new DainvoCloudClient(
+      {
+        supabaseUrl: "https://example.supabase.co",
+        publishableKey: "sb_publishable_test",
+        oauthClientId: "client-id",
+        oauthRedirectUri: "https://users.dainvo.com/auth/obsidian-callback",
+      },
+      {
+        getValidSession: vi.fn(async () => ({
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
+          expiresAt: Date.now() + 60_000,
+          userId: "user-id",
+        })),
+      } as never,
+    );
+
+    await expect(
+      client.listPendingOperations({
+        cloudVaultId: "cloud-vault",
+        deviceId: "device-id",
+        publisherEpoch: "old-epoch",
+      }),
+    ).rejects.toMatchObject({ code: "stale_obsidian_publisher", status: 400 });
+  });
 });

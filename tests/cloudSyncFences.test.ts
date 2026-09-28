@@ -150,7 +150,7 @@ describe("the cycle owner fence", () => {
         const body = JSON.parse(request.body) as { p_publication: CloudPublicationIntent["publication"] };
         return { status: 200, text: JSON.stringify({ publisher_epoch: body.p_publication.publisher_epoch, publication_id: body.p_publication.publication_id, sequence: body.p_publication.sequence, base_sequence: body.p_publication.base_sequence }) };
       }
-      if (fn === "list_my_obsidian_pending_operations_v2")
+      if (fn === "list_my_obsidian_pending_operations_v3")
         return { status: 200, text: JSON.stringify({ operations: [] }) };
       return { status: 404, text: "{}" };
     });
@@ -220,5 +220,128 @@ describe("the cycle owner fence", () => {
     await coordinator.relinkToCurrentAccount();
     expect(bindOwner).toHaveBeenLastCalledWith("user-b");
     expect(settings.cloudOwnerUserId).toBe("user-b");
+  });
+});
+
+describe("the pending-operation publisher fence", () => {
+  it("keeps the journal after a stale resolve and retries once at once", async () => {
+    const settings = baseSettings();
+    const requestCloudContinuation = vi.fn();
+    const pendingOperation = {
+      id: "row-1",
+      requested_at: "2026-09-28T10:00:00.000Z",
+      operation_id: "operation-1",
+      operation_type: "complete" as const,
+      task_id: "cloud-task-1",
+      provider_task_id: "missing-task",
+      local_vault_id: "stable-current",
+      base_server_version: 1,
+      current_task_status: "open" as const,
+      current_task_server_version: 1,
+    };
+    const listPendingOperations = vi.fn().mockResolvedValue([pendingOperation]);
+    const resolveOperations = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new CloudRelayError("stale_obsidian_publisher", 400, false),
+      )
+      .mockResolvedValue({
+        resolved: 1,
+        skipped: 0,
+        results: [
+          { operation_id: "operation-1", outcome: "resolved", status: "rejected" },
+        ],
+      });
+    const coordinator = new ObsidianCloudSyncCoordinator(
+      {
+        vault: vault(),
+        getSettings: () => settings,
+        saveSettings: vi.fn().mockResolvedValue(undefined),
+        getDeviceId: () => "device",
+        ensureBridgeIdentityAliasSupport: vi.fn().mockResolvedValue(undefined),
+        requestCloudContinuation,
+      },
+      { getValidSession: vi.fn().mockResolvedValue({ userId: "user" }) } as never,
+      {
+        getAccess: vi.fn().mockResolvedValue({ allowed: true, plan_name: "Pro", plan_slug: "pro", reason: "" }),
+        listPublisherVaults: vi.fn().mockResolvedValue([]),
+        publishVault: vi.fn().mockImplementation(async () => ({
+          vault: { id: "cloud-vault", publisher_epoch: "epoch-1" },
+          publication: {
+            protocol_version: 2,
+            publisher_epoch: "epoch-1",
+            last_sequence: settings.cloudPublicationSequence,
+          },
+        })),
+        pushSnapshot: vi.fn().mockImplementation(async (intent: CloudPublicationIntent) => ({
+          publisher_epoch: intent.publication.publisher_epoch,
+          publication_id: intent.publication.publication_id,
+          sequence: intent.publication.sequence,
+          base_sequence: intent.publication.base_sequence,
+        })),
+        listPendingOperations,
+        resolveOperations,
+      } as never,
+      {
+        countBackfillCandidates: vi.fn().mockResolvedValue(0),
+        normalize: vi.fn().mockResolvedValue({ changed: 0 }),
+      } as never,
+    );
+
+    await expect(coordinator.requestSync()).rejects.toThrow(
+      "stale_obsidian_publisher",
+    );
+    const fence = { cloudVaultId: "cloud-vault", deviceId: "device", publisherEpoch: "epoch-1" };
+    expect(listPendingOperations).toHaveBeenCalledWith(expect.objectContaining(fence));
+    expect(resolveOperations).toHaveBeenCalledWith({
+      ...fence,
+      resolutions: [
+        { operation_id: "operation-1", status: "rejected", result: { reason: "task_missing" } },
+      ],
+    });
+    expect(Object.keys(settings.cloudOperationJournal)).toEqual(["operation-1"]);
+    expect(settings.cloudStatus).toBe("retryable_error");
+    expect(settings.cloudLastErrorCode).toBe("stale_obsidian_publisher");
+    expect(settings.cloudRetryAt).toBe("");
+    expect(coordinator.shouldRetryNow()).toBe(true);
+    expect(requestCloudContinuation).toHaveBeenCalledOnce();
+
+    await coordinator.requestSync();
+    expect(resolveOperations).toHaveBeenCalledTimes(2);
+    expect(settings.cloudOperationJournal).toEqual({});
+    expect(settings.cloudStatus).toBe("published");
+    expect(settings.cloudRetryAttempt).toBe(0);
+  });
+
+  it("backs off normally when the stale answer repeats", async () => {
+    const settings = baseSettings();
+    settings.cloudRetryAttempt = 1;
+    const requestCloudContinuation = vi.fn();
+    const coordinator = new ObsidianCloudSyncCoordinator(
+      {
+        vault: vault(),
+        getSettings: () => settings,
+        saveSettings: vi.fn().mockResolvedValue(undefined),
+        getDeviceId: () => "device",
+        ensureBridgeIdentityAliasSupport: vi.fn().mockResolvedValue(undefined),
+        requestCloudContinuation,
+      },
+      { getValidSession: vi.fn().mockResolvedValue({ userId: "user" }) } as never,
+      {
+        getAccess: vi.fn().mockResolvedValue({ allowed: true, plan_name: "Pro", plan_slug: "pro", reason: "" }),
+        listPublisherVaults: vi
+          .fn()
+          .mockRejectedValue(new CloudRelayError("stale_obsidian_publisher", 400, false)),
+      } as never,
+      {} as never,
+    );
+
+    await expect(coordinator.requestSync()).rejects.toThrow(
+      "stale_obsidian_publisher",
+    );
+    expect(settings.cloudStatus).toBe("retryable_error");
+    expect(settings.cloudRetryAttempt).toBe(2);
+    expect(Date.parse(settings.cloudRetryAt)).toBeGreaterThan(Date.now());
+    expect(requestCloudContinuation).not.toHaveBeenCalled();
   });
 });

@@ -386,10 +386,15 @@ export class ObsidianCloudSyncCoordinator {
     await this.refreshTaskIndex(fullReconciliation);
     await this.publishCurrentSnapshot(deviceId, fullReconciliation);
 
-    const operations = await this.cloud.listPendingOperations(
-      settings.cloudVaultId,
-      settings.cloudOperationScanCursor,
-    );
+    const operationFence = {
+      cloudVaultId: settings.cloudVaultId,
+      deviceId,
+      publisherEpoch: settings.cloudPublisherEpoch,
+    };
+    const operations = await this.cloud.listPendingOperations({
+      ...operationFence,
+      cursor: settings.cloudOperationScanCursor,
+    });
     settings.cloudOperationContinuation =
       operations.length >= CLOUD_OPERATION_BATCH_LIMIT;
     const lastOperation = operations.at(-1);
@@ -414,9 +419,20 @@ export class ObsidianCloudSyncCoordinator {
       await this.publishCurrentSnapshot(deviceId, true);
     }
     if (operationResult.resolutions.length > 0) {
-      await this.cloud.resolveOperations(operationResult.resolutions);
+      // A throw (stale_obsidian_publisher included) keeps every journal entry,
+      // so the write-back result is re-sent by whichever install owns the
+      // vault epoch next. Only ids the server reported are final.
+      const resolveResult = await this.cloud.resolveOperations({
+        ...operationFence,
+        resolutions: operationResult.resolutions,
+      });
+      const reported = Array.isArray(resolveResult?.results)
+        ? new Set(resolveResult.results.map((row) => row.operation_id))
+        : null;
       for (const resolution of operationResult.resolutions) {
-        delete settings.cloudOperationJournal[resolution.operation_id];
+        if (!reported || reported.has(resolution.operation_id)) {
+          delete settings.cloudOperationJournal[resolution.operation_id];
+        }
       }
     }
 
@@ -861,6 +877,7 @@ export class ObsidianCloudSyncCoordinator {
   private async recordFailure(error: unknown): Promise<void> {
     const settings = this.host.getSettings();
     const code = safeErrorCode(error);
+    let staleRetry = false;
     if (
       code === "signed_out" ||
       (error instanceof CloudRelayError && error.status === 401)
@@ -872,6 +889,18 @@ export class ObsidianCloudSyncCoordinator {
       settings.cloudStatus = "paused_account";
     } else if (code === "not_publisher") {
       settings.cloudStatus = "paused_other_publisher";
+    } else if (
+      code === "stale_obsidian_publisher" &&
+      settings.cloudRetryAttempt === 0
+    ) {
+      // The vault's publisher epoch moved after this cycle read it (a
+      // takeover, or a re-claim that rotated the epoch). Retry once at once:
+      // the next cycle re-reads the vault list and either adopts the current
+      // epoch or pauses at the other publisher. A repeat backs off normally.
+      settings.cloudStatus = "retryable_error";
+      settings.cloudRetryAttempt = 1;
+      settings.cloudRetryAt = "";
+      staleRetry = true;
     } else if (
       code === "obsidian_vault_limit_reached" ||
       code === "obsidian_active_vault_changed"
@@ -895,6 +924,9 @@ export class ObsidianCloudSyncCoordinator {
     }
     settings.cloudLastErrorCode = code;
     await this.host.saveSettings();
+    if (staleRetry) {
+      this.host.requestCloudContinuation?.();
+    }
   }
 }
 

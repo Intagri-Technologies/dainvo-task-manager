@@ -612,13 +612,23 @@ describe("cloud operation drain continuation", () => {
 
     expect(settings.cloudOperationContinuation).toBe(true);
     expect(requestCloudContinuation).toHaveBeenCalledOnce();
-    expect(resolveOperations.mock.calls[0]?.[0]).toHaveLength(100);
+    expect((resolveOperations.mock.calls[0]?.[0] as { resolutions: unknown[] }).resolutions).toHaveLength(100);
 
     await coordinator.requestSync();
 
     expect(settings.cloudOperationContinuation).toBe(false);
-    expect(resolveOperations.mock.calls[1]?.[0]).toHaveLength(1);
+    expect((resolveOperations.mock.calls[1]?.[0] as { resolutions: unknown[] }).resolutions).toHaveLength(1);
     expect(listPendingOperations).toHaveBeenCalledTimes(2);
+    expect(listPendingOperations.mock.calls[0]?.[0]).toMatchObject({
+      cloudVaultId: "cloud-vault",
+      deviceId: "device",
+      publisherEpoch: "publisher-epoch",
+    });
+    expect(resolveOperations.mock.calls[0]?.[0]).toMatchObject({
+      cloudVaultId: "cloud-vault",
+      deviceId: "device",
+      publisherEpoch: "publisher-epoch",
+    });
   });
 });
 

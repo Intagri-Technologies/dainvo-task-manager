@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## 1.6.0 - Unreleased
+
+Requires the Dainvo backend with the Obsidian publisher fence
+(`20260928000700_obsidian_pending_operation_publisher_fence.sql`). Release it
+together with, or after, the Dainvo desktop that carries publication v2.
+
+### Changed
+
+- Mobile sync publishes ordered, replay-safe publications (publication v2).
+  Each publication carries the backend-issued publisher epoch and a sequence,
+  bounded publications resume after an interruption, and tasks with pending
+  mobile changes stay published outside the normal window.
+- Reading and acknowledging mobile changes now sends this installation's device
+  ID and publisher epoch. After another installation takes over the vault, this
+  one can no longer read or acknowledge its changes.
+
+### Fixed
+
+- A mobile change acknowledged while another installation took over the vault
+  is kept in the local journal and retried once straight away; the retry
+  either resumes with the current epoch or pauses because another vault
+  publisher is selected.
+- A publication the server rejects as stale is dropped, and the next sync
+  adopts the server sequence and republishes in full.
+- Every request in a sync runs as the account checked at its start; signing in
+  to another Dainvo account mid-sync pauses instead of publishing into it.
+  Relinking binds to the new account at once, and disabling purges only as the
+  vault's owner.
+- Journal Obsidian task writes, persist write receipts, and recover lost
+  acknowledgements and interrupted moves.
+- Stale OAuth callbacks and token refreshes can no longer restore a signed-out
+  session.
+
 ## 1.5.0 - 2026-09-09
 
 ### Added
