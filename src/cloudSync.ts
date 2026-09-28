@@ -154,6 +154,10 @@ export class ObsidianCloudSyncCoordinator {
       if (!session) {
         throw new CloudRelayError("signed_out", 401, false);
       }
+      // Purge only the account that owns this vault's publication. Signed in
+      // as another account, this fails with account_changed and stays
+      // pending until the owner signs back in.
+      this.cloud.bindOwner?.(settings.cloudOwnerUserId || session.userId);
       const mapping = selectCloudVaultByStableId(
         await this.cloud.listPublisherVaults(),
         settings.vaultId,
@@ -181,6 +185,7 @@ export class ObsidianCloudSyncCoordinator {
     }
     const settings = this.host.getSettings();
     settings.cloudOwnerUserId = session.userId;
+    this.cloud.bindOwner?.(session.userId);
     settings.cloudVaultId = "";
     settings.cloudVaultKey = settings.vaultId;
     settings.cloudPublishedDigests = {};
@@ -634,10 +639,18 @@ export class ObsidianCloudSyncCoordinator {
         // The server replays an accepted publication before this check, so a
         // stale answer means another publication took this sequence (another
         // install or restored data). Drop the intent; the next cycle adopts
-        // the server's sequence and republishes in full.
+        // the server's sequence and republishes in full. Every id this vault
+        // may have published stays known, including the dropped intent's
+        // removals, so the full republication still deletes them.
+        settings.cloudKnownPublishedTaskIds = [
+          ...new Set([
+            ...settings.cloudKnownPublishedTaskIds,
+            ...Object.keys(settings.cloudPublishedDigests),
+            ...intent.publication.removed_provider_task_ids,
+          ]),
+        ].sort();
         settings.cloudPendingPublication = null;
         settings.cloudPublishedDigests = {};
-        settings.cloudKnownPublishedTaskIds = [];
         settings.cloudLastFullSyncAt = "";
         await this.host.saveSettings();
       }

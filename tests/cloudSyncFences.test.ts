@@ -54,7 +54,7 @@ describe("a persisted publication the server rejects as stale", () => {
           completed: { eligible_count: 0, selected_count: 0, omitted_count: 0 },
           retained_target_count: 0,
         },
-        removed_provider_task_ids: [],
+        removed_provider_task_ids: ["gone-task"],
       },
       upserts: [],
       presentProviderTaskIds: ["task"],
@@ -104,6 +104,8 @@ describe("a persisted publication the server rejects as stale", () => {
     );
     expect(settings.cloudPendingPublication).toBeNull();
     expect(settings.cloudStatus).toBe("retryable_error");
+    // The dropped intent's removal stays known so the republication deletes it.
+    expect(settings.cloudKnownPublishedTaskIds).toContain("gone-task");
 
     pushSnapshot.mockReset();
     pushSnapshot.mockImplementation(async (intent: CloudPublicationIntent) => ({
@@ -118,6 +120,9 @@ describe("a persisted publication the server rejects as stale", () => {
     expect(republished.publication.publication_id).not.toBe("local-publication");
     expect(republished.publication.base_sequence).toBe(2);
     expect(republished.publication.sequence).toBe(3);
+    expect(republished.publication.removed_provider_task_ids).toContain(
+      "gone-task",
+    );
     expect(settings.cloudPublicationSequence).toBe(3);
   });
 });
@@ -184,5 +189,36 @@ describe("the cycle owner fence", () => {
     expect(settings.cloudOwnerUserId).toBe("user-a");
     expect(settings.cloudVaultId).not.toBe("cloud-vault-b");
     expect(settings.cloudStatus).toBe("paused_account");
+  });
+
+  it("relink rebinds the client, and disable purges only the vault owner", async () => {
+    const settings = baseSettings();
+    settings.cloudOwnerUserId = "user-a";
+    const bindOwner = vi.fn();
+    const session = { getValidSession: vi.fn().mockResolvedValue({ userId: "user-b" }) };
+    const listPublisherVaults = vi
+      .fn()
+      .mockRejectedValue(new CloudRelayError("account_changed", 409, false));
+    const coordinator = new ObsidianCloudSyncCoordinator(
+      {
+        vault: vault(),
+        getSettings: () => settings,
+        saveSettings: vi.fn().mockResolvedValue(undefined),
+        getDeviceId: () => "device",
+        ensureBridgeIdentityAliasSupport: vi.fn().mockResolvedValue(undefined),
+      },
+      session as never,
+      { bindOwner, listPublisherVaults } as never,
+      {} as never,
+    );
+
+    // Disable while signed in as B never purges A's vault as B.
+    await expect(coordinator.disableAndPurge()).rejects.toThrow("account_changed");
+    expect(bindOwner).toHaveBeenLastCalledWith("user-a");
+    expect(settings.cloudStatus).toBe("disable_pending");
+
+    await coordinator.relinkToCurrentAccount();
+    expect(bindOwner).toHaveBeenLastCalledWith("user-b");
+    expect(settings.cloudOwnerUserId).toBe("user-b");
   });
 });
