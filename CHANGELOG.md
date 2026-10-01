@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 - 2026-10-01
+
+Requires the Dainvo backend with the Obsidian publisher fence
+(`20260928000700_obsidian_pending_operation_publisher_fence.sql`) and a Dainvo
+desktop that supports publication v2 for the local bridge.
 
 ### Changed
 
@@ -23,20 +27,6 @@
 - The local bridge sends the vault as it is on every attempt; a retry never
   resends an older inventory.
 
-### Fixed
-
-- `✅` dates use your local day instead of the UTC day.
-- A failed desktop write no longer leaves an entry that made every retry look
-  like an uncertain earlier write.
-
-## 1.6.0 - Unreleased
-
-Requires the Dainvo backend with the Obsidian publisher fence
-(`20260928000700_obsidian_pending_operation_publisher_fence.sql`). Release it
-together with, or after, the Dainvo desktop that carries publication v2.
-
-### Changed
-
 - Mobile sync publishes ordered, replay-safe publications (publication v2).
   Each publication carries the backend-issued publisher epoch and a sequence,
   bounded publications resume after an interruption, and tasks with pending
@@ -47,6 +37,9 @@ together with, or after, the Dainvo desktop that carries publication v2.
 
 ### Fixed
 
+- `✅` dates use your local day instead of the UTC day.
+- A failed desktop write no longer leaves an entry that made every retry look
+  like an uncertain earlier write.
 - A mobile change acknowledged while another installation took over the vault
   is kept in the local journal and retried once straight away; the retry
   either resumes with the current epoch or pauses because another vault
