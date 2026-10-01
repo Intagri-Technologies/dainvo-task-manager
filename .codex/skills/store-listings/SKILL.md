@@ -42,7 +42,7 @@ owner submits.
 | Plans and reasoning | workspace `docs/MOBILE_STORE_*`, `docs/DESKTOP_STORE_LISTING_SEO_PLAN_*` |
 | App captures | `marketing/Screenshots/{iPhone,iPad,Android,Desktop}` (README lists every file); retired sets in `marketing/Archive/` |
 | Index | `marketing/README.md` and `marketing/Store Listings/README.md` |
-| Tools | `marketing/Store Listings/tools/`: `compose_*.py` build the store images (Pillow); `fill_microsoft_csv.py` fills the Microsoft Import-listing CSV from the translations |
+| Tools | `marketing/Store Listings/tools/`: `compose_mac.mjs` and `compose_phone.mjs` (Playwright, then `flatten_rgb.py`) build the store slides, the `compose_*.py` scripts (Pillow) the poster and feature graphic; `fill_microsoft_csv.py` fills the Microsoft Import-listing CSV from the translations |
 
 ## App Store Connect (iOS and Mac)
 
@@ -103,9 +103,23 @@ No API is set up; use the browser pane. The owner signs in; never enter a passwo
 
 ## Google Play Console
 
-Browser only. Screenshots are uploaded by the owner (the browser pane can't
-attach files). Text drafts can be filled; the main listing's **Save** submits
-it for review, so stop before Save unless the owner asked to publish.
+Listings are browser only. Screenshots are uploaded by the owner (the browser
+pane can't attach files). Text drafts can be filled; the main listing's
+**Save** submits it for review, so stop before Save unless the owner asked to
+publish.
+
+Prices can be read with [`scripts/play.py`](scripts/play.py) (read-only, GET
+requests only). It signs in as the `dainvo-play-read` service account, whose
+key is `~/Documents/Keys/Dainvo/play-read.json` and which has only **View app
+information (read-only)** on the app. Needs
+`python3 -m pip install --user google-auth requests` once.
+
+```bash
+python3 skills/store-listings/scripts/play.py prices US CA GB
+```
+
+Play and App Store prices are set separately and can differ (30 Sep 2026: Play
+US $4.99 / $47.99, App Store US $5.00 / $48.00).
 
 ## Done when
 
