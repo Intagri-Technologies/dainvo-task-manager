@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2 - 2026-10-01
+
+### Fixed
+
+- Pin the transitive Moment.js dependency to 2.31.0, which fixes
+  GHSA-4p3w-j4w9-5jqw. Moment.js is provided by Obsidian at runtime and is
+  not bundled into the plugin; this updates the dependency lockfile.
+
 ## 1.6.1 - 2026-10-01
 
 ### Changed

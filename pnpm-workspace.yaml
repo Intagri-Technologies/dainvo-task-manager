@@ -3,3 +3,4 @@ allowBuilds:
 overrides:
   '@typescript-eslint/tsconfig-utils': 8.64.0
   '@typescript-eslint/types': 8.64.0
+  moment: 2.31.0
