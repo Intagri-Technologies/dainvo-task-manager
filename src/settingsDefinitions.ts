@@ -12,10 +12,12 @@ import {
 } from "obsidian";
 
 import type DainvoTaskManagerPlugin from "./main";
-import type { StableIdMode } from "./types";
+import type { DainvoPluginSettings, StableIdMode } from "./types";
 
 export type DainvoSettingsActions = {
   refresh: () => void;
+  openDesktopPairing: () => void;
+  openMobileSyncOptions: () => void;
   setStableIdMode: (mode: StableIdMode) => Promise<void>;
   enableCloudSync: () => Promise<void>;
   useThisDeviceAsPublisher: () => Promise<void>;
@@ -29,60 +31,82 @@ export function buildDainvoSettingDefinitions(
   actions: DainvoSettingsActions,
 ): SettingDefinitionItem[] {
   return [
-    buildCloudDefinitions(plugin, actions),
-    buildDesktopBridgeDefinitions(plugin, actions),
-    buildDailyNoteDefinitions(plugin, actions),
-    buildItemNoteDefinitions(plugin, actions),
-    buildProjectNoteDefinitions(plugin, actions),
+    {
+      type: "group",
+      heading: "Account and connections",
+      items: [
+        ...(buildAccountDefinitions(plugin, actions).items ?? []),
+        row("Desktop pairing", (setting) => {
+          const paired = plugin.hasDesktopBridgePairing();
+          setting.setDesc(paired ? desktopStatusText(plugin.settings.lastStatus) : "Not connected. Pair this vault with Dainvo desktop.");
+          if (paired) {
+            setting.addButton((button) => button.setButtonText("Sync now").onClick(async () => {
+              try {
+                await plugin.pushSnapshotNow();
+                new Notice("Dainvo desktop tasks synced.");
+              } catch (error) {
+                new Notice(formatError(error));
+              } finally {
+                actions.refresh();
+              }
+            }));
+          }
+          setting.addButton((button) => button
+            .setButtonText(paired ? "Options" : "Connect")
+            .onClick(actions.openDesktopPairing));
+        }, { visible: () => Platform.isDesktopApp, aliases: ["bridge", "Dainvo bridge URL", "pairing code", "desktop sync", "disconnect"] }),
+        buildMobileSyncRow(plugin, actions),
+      ],
+    },
+    {
+      type: "group",
+      heading: "Preferences",
+      items: [
+        {
+          type: "page",
+          name: "General",
+          desc: "Choose how task markers are added to this vault.",
+          items: [buildGeneralDefinitions(plugin, actions)],
+        },
+        {
+          type: "page",
+          name: "Notes",
+          desc: "Daily Notes, event and meeting notes, and project folders for Dainvo desktop.",
+          visible: () => Platform.isDesktopApp,
+          items: [{
+            type: "group",
+            heading: "Notes created by Dainvo desktop",
+            items: [
+              { type: "page", name: "Daily Notes", desc: "Create tasks in your daily note and choose the section.", items: [buildDailyNoteDefinitions(plugin, actions)] },
+              { type: "page", name: "Event, meeting and bucket notes", desc: "Choose folders, filenames and initial note content.", items: [buildItemNoteDefinitions(plugin, actions)] },
+              { type: "page", name: "Project notes", desc: "Choose the folder for project notes.", items: [buildProjectNoteDefinitions(plugin, actions)] },
+            ],
+          }],
+        },
+      ],
+    },
   ];
 }
 
-function buildCloudDefinitions(
+function buildAccountDefinitions(
   plugin: DainvoTaskManagerPlugin,
   actions: DainvoSettingsActions,
 ): SettingDefinitionGroup {
   const settings = plugin.settings;
   return {
     type: "group",
-    heading: "Dainvo mobile task sync",
+    heading: "Dainvo account",
     items: [
-      infoRow(
-        "About mobile task sync",
-        "Sync task fields through Dainvo so they remain available offline in Dainvo mobile. Vault files, Markdown bodies, raw task lines, attachments, and full filesystem paths are never uploaded.",
-      ),
-      row("Mobile sync status", (setting) => {
-        setting.setDesc(`Status: ${cloudStatusText(settings.cloudStatus)}`);
-      }, { searchable: false }),
-      row("Dainvo account status", (setting) => {
-        const signedIn = plugin.isCloudSignedIn();
-        setting.setDesc(
-          signedIn
-            ? `Signed in as ${plugin.cloudSignedInAccountLabel()}${settings.cloudPlanName ? ` · ${settings.cloudPlanName}` : " · checking plan…"}`
-            : "Signed out",
-        );
-        if (signedIn) {
-          void plugin
-            .refreshCloudAccessStatus()
-            .then((access) => {
-              setting.setDesc(
-                `Signed in as ${plugin.cloudSignedInAccountLabel()} · ${access.planName || "Unknown plan"} · ${access.allowed ? "mobile sync included" : "upgrade required"}`,
-              );
-            })
-            .catch(() => {
-              setting.setDesc(
-                `Signed in as ${plugin.cloudSignedInAccountLabel()} · plan check unavailable`,
-              );
-            });
-        }
-      }, { aliases: ["sign in", "sign out", "account plan"] }),
       row("Dainvo account", (setting) => {
         const signedIn = plugin.isCloudSignedIn();
+        const accountDescription = (plan = settings.cloudPlanName || "Checking plan…") =>
+          `${plugin.cloudSignedInAccountLabel()} · ${plan}`;
         setting
-          .setName(signedIn ? "Dainvo account" : "Sign in to Dainvo")
+          .setName("Dainvo account")
           .setDesc(
             signedIn
-              ? `Signed in as ${plugin.cloudSignedInAccountLabel()}. Signing out pauses this vault without deleting its cloud copy.`
-              : "Opens the Dainvo account site and returns here through Obsidian after secure PKCE authorization.",
+              ? accountDescription()
+              : "Not signed in. Use the same Dainvo account you use on your phone.",
           )
           .addButton((button) =>
             button
@@ -100,86 +124,91 @@ function buildCloudDefinitions(
                 }
               }),
           );
-      }, { aliases: ["sign in", "sign out"] }),
-      row("Mobile sync source vault", (setting) => {
-        setting.setDesc(
-          `${settings.vaultName}. This installation publishes only the open vault's persistent identity. Vault names are display labels and are never merged.`,
-        );
-      }, { visible: () => plugin.isCloudSignedIn() }),
-      row("Stable task IDs", (setting) => {
-        setting.setDesc("Checking vault…");
-        void plugin
-          .countStableIdBackfillCandidates()
-          .then((count) => {
-            setting.setDesc(
-              count === 0
-                ? "Every supported task already has a stable ID."
-                : `${count} existing task${count === 1 ? "" : "s"} can be normalized.`,
-            );
-          })
-          .catch(() => setting.setDesc("Vault scan unavailable."));
-      }, { aliases: ["block IDs", "task identity"], searchable: false }),
-      row("Stable-ID mode", (setting) => {
-        setting
-          .setDesc(
-            "Backfill is the recommended mode and keeps task identity stable when notes or task lines move. Existing IDs are never removed.",
-          )
-          .addDropdown((dropdown) =>
-            dropdown
-              .addOption("backfill_and_future", "Backfill existing + future")
-              .addOption("future_only", "New tasks only")
-              .setValue(settings.cloudIdentityMode)
-              .onChange(async (value) => {
-                try {
-                  await actions.setStableIdMode(value as StableIdMode);
-                } catch (error) {
-                  new Notice(formatError(error));
-                } finally {
-                  actions.refresh();
-                }
-              }),
-          );
-      }, { aliases: ["stable IDs", "backfill"] }),
-      row("Mobile task sync", (setting) => {
-        setting
-          .setName(
-            settings.cloudSyncEnabled
-              ? "Mobile task sync enabled"
-              : "Sync tasks to Dainvo mobile",
-          )
-          .setDesc(
-            settings.cloudSyncEnabled
-              ? "The selected publisher relays task projections and applies queued complete/reopen actions."
-              : "Enabling performs a fresh scan and initial publication. An offline failure remains enabled and retryable.",
-          )
-          .addButton((button) => {
-            if (settings.cloudSyncEnabled) {
-              button.setButtonText("Sync now").onClick(async () => {
-                try {
-                  await plugin.syncCloudNow();
-                  new Notice("Dainvo mobile task sync finished.");
-                } catch (error) {
-                  new Notice(formatError(error));
-                } finally {
-                  actions.refresh();
-                }
-              });
-              return;
+        if (signedIn) {
+          void plugin.refreshCloudAccessStatus().then((access) => {
+            setting.setDesc(accountDescription(
+              `${access.planName || "Unknown plan"} · ${access.allowed ? "Mobile sync included" : "Upgrade needed for mobile sync"}`,
+            ));
+          }).catch(() => setting.setDesc(accountDescription("Plan check unavailable")));
+        }
+      }, { aliases: ["sign in", "sign out", "account plan"] }),
+    ],
+  };
+}
+
+function buildMobileSyncRow(
+  plugin: DainvoTaskManagerPlugin,
+  actions: DainvoSettingsActions,
+): DainvoSettingRow {
+  const settings = plugin.settings;
+  return row("Mobile task sync", (setting) => {
+    setting
+      .setName(
+        settings.cloudSyncEnabled
+          ? "Mobile sync"
+          : "Enable mobile sync",
+      )
+      .setDesc(
+        settings.cloudSyncEnabled
+          ? mobileSyncDescription(settings)
+          : `${settings.vaultName} · ${plugin.isCloudSignedIn() ? "Off. Enable to sync task details with your phone." : "Sign in above to enable mobile sync."}`,
+      )
+      .addButton((button) => {
+        button.setDisabled(!plugin.isCloudSignedIn());
+        if (settings.cloudSyncEnabled) {
+          button.setButtonText("Sync now").onClick(async () => {
+            try {
+              await plugin.syncCloudNow();
+              new Notice("Dainvo mobile task sync finished.");
+            } catch (error) {
+              new Notice(formatError(error));
+            } finally {
+              actions.refresh();
             }
-            button
-              .setButtonText("Enable")
-              .setCta()
-              .onClick(async () => {
-                try {
-                  await actions.enableCloudSync();
-                } catch (error) {
-                  new Notice(formatError(error));
-                } finally {
-                  actions.refresh();
-                }
-              });
           });
-      }, { aliases: ["cloud sync", "sync now", "enable sync"] }),
+          return;
+        }
+        button
+          .setButtonText("Enable")
+          .setCta()
+          .onClick(async () => {
+            try {
+              await actions.enableCloudSync();
+            } catch (error) {
+              new Notice(formatError(error));
+            } finally {
+              actions.refresh();
+            }
+          });
+      })
+      .addButton((button) => button.setButtonText("Options").onClick(actions.openMobileSyncOptions));
+  }, { aliases: ["cloud sync", "sync now", "enable sync", "disable sync", "delete cloud copy", "publisher", "retry sync"] });
+}
+
+function buildCloudRecoveryDefinitions(
+  plugin: DainvoTaskManagerPlugin,
+  actions: DainvoSettingsActions,
+): SettingDefinitionGroup {
+  const settings = plugin.settings;
+  return {
+    type: "group",
+    heading: "Dainvo mobile sync",
+    items: [
+      row("Mobile task sync requires an eligible plan", (setting) => {
+        setting
+          .setDesc(
+            "Cached mobile tasks remain readable, but new relay work is paused.",
+          )
+          .addButton((button) =>
+            button.setButtonText("View plans").onClick(() => {
+              window.open(
+                "https://dainvo.com/pricing",
+                "_blank",
+                "noopener,noreferrer",
+              );
+            }),
+          );
+      }, { visible: () => settings.cloudStatus === "paused_plan" }),
       row("Another publisher owns this vault", (setting) => {
         setting
           .setDesc(
@@ -260,10 +289,88 @@ function buildCloudDefinitions(
           settings.cloudStatus === "retryable_error" ||
           settings.cloudStatus === "disable_pending",
       }),
+    ],
+  };
+}
+
+export function buildMobileSyncOptions(
+  plugin: DainvoTaskManagerPlugin,
+  actions: DainvoSettingsActions,
+): SettingDefinitionItem[] {
+  return [
+    {
+      type: "group",
+      items: [
+        infoRow("Sync status", mobileSyncDescription(plugin.settings)),
+        infoRow("About mobile sync", "Keep Obsidian open to send and receive task changes. Only task details are synced; full notes and attachments stay in your vault. One vault can be synced per Dainvo account."),
+        ...(buildCloudRecoveryDefinitions(plugin, actions).items ?? []),
+      ],
+    },
+    buildCloudManagementDefinitions(plugin, actions),
+  ];
+}
+
+function buildGeneralDefinitions(
+  plugin: DainvoTaskManagerPlugin,
+  actions: DainvoSettingsActions,
+): SettingDefinitionGroup {
+  const settings = plugin.settings;
+  return {
+    type: "group",
+    heading: "General",
+    items: [
+      row("Task markers", (setting) => {
+        setting
+          .setDesc(
+            "Markers let Dainvo recognize tasks when you move or edit them. Add them to existing and new tasks for reliable sync. Existing markers are kept.",
+          )
+          .addDropdown((dropdown) =>
+            dropdown
+              .addOption("backfill_and_future", "Existing and new tasks (recommended)")
+              .addOption("future_only", "New tasks only")
+              .setValue(settings.cloudIdentityMode)
+              .onChange(async (value) => {
+                try {
+                  await actions.setStableIdMode(value as StableIdMode);
+                } catch (error) {
+                  new Notice(formatError(error));
+                } finally {
+                  actions.refresh();
+                }
+              }),
+          );
+      }, { aliases: ["stable IDs", "Stable-ID mode", "block IDs", "backfill"] }),
+      row("Existing task markers", (setting) => {
+        setting.setDesc("Checking vault…");
+        void plugin
+          .countStableIdBackfillCandidates()
+          .then((count) => {
+            setting.setDesc(
+              count === 0
+                ? "All supported tasks already have markers."
+                : `${count} existing task${count === 1 ? "" : "s"} can receive markers.`,
+            );
+          })
+          .catch(() => setting.setDesc("Vault scan unavailable."));
+      }, { aliases: ["block IDs", "task identity"], searchable: false }),
+    ],
+  };
+}
+
+function buildCloudManagementDefinitions(
+  plugin: DainvoTaskManagerPlugin,
+  actions: DainvoSettingsActions,
+): SettingDefinitionGroup {
+  const settings = plugin.settings;
+  return {
+    type: "group",
+    heading: "Manage mobile sync",
+    visible: () => settings.cloudSyncEnabled || settings.cloudStatus === "disable_pending",
+    items: [
       row("Disable and delete cloud copy", (setting) => {
         setting
           .setDesc(
-            "Publishing stops immediately. If cloud deletion cannot be confirmed, the status remains disable pending so you can retry.",
+            "Stop mobile sync and delete this vault's synced tasks and waiting changes from Dainvo. Your Obsidian notes and task markers stay in place.",
           )
           .addButton((button) =>
             setDestructiveButton(button.setButtonText("Disable and delete"))
@@ -281,42 +388,20 @@ function buildCloudDefinitions(
         visible: () =>
           settings.cloudSyncEnabled || settings.cloudStatus === "disable_pending",
       }),
-      row("Last mobile publication", (setting) => {
-        setting.setDesc(
-          `${settings.cloudLastPublishedAt} · pending mobile operations: ${settings.cloudOperationBacklog}`,
-        );
-      }, { visible: () => Boolean(settings.cloudLastPublishedAt), searchable: false }),
-      row("Mobile task sync requires an eligible plan", (setting) => {
-        setting
-          .setDesc(
-            "Cached mobile tasks remain readable, but new relay work is paused.",
-          )
-          .addButton((button) =>
-            button.setButtonText("View plans").onClick(() => {
-              window.open(
-                "https://dainvo.com/pricing",
-                "_blank",
-                "noopener,noreferrer",
-              );
-            }),
-          );
-      }, { visible: () => settings.cloudStatus === "paused_plan" }),
     ],
   };
 }
 
-function buildDesktopBridgeDefinitions(
+export function buildDesktopPairingDefinitions(
   plugin: DainvoTaskManagerPlugin,
   actions: DainvoSettingsActions,
 ): SettingDefinitionGroup {
   return {
     type: "group",
-    heading: "Local Dainvo desktop bridge",
     visible: () => Platform.isDesktopApp,
     items: [
-      row("Desktop bridge status", (setting) => {
-        setting.setDesc(`Status: ${plugin.settings.lastStatus}`);
-      }, { searchable: false }),
+      infoRow("Connection status", plugin.hasDesktopBridgePairing() ? plugin.settings.lastStatus : "Not paired"),
+      infoRow("Connect this vault", "Start an Obsidian pairing session in Dainvo desktop, then enter the bridge URL and pairing code it shows."),
       row("Dainvo bridge URL", (setting) => {
         setting
           .setDesc("Use the URL shown by Dainvo desktop when starting Obsidian pairing.")
@@ -346,7 +431,7 @@ function buildDesktopBridgeDefinitions(
       row("Desktop pairing", (setting) => {
         setting
           .setDesc(
-            "The vault-specific bridge bearer token is stored in Obsidian SecretStorage.",
+            "Pairing connects only this vault to Dainvo desktop. Disconnecting keeps your notes in place.",
           )
           .addButton((button) =>
             button
@@ -373,25 +458,6 @@ function buildDesktopBridgeDefinitions(
               }),
           );
       }, { aliases: ["pair", "disconnect"] }),
-      row("Sync desktop bridge now", (setting) => {
-        setting
-          .setDesc("Pushes a complete local task snapshot to Dainvo desktop.")
-          .addButton((button) =>
-            button
-              .setButtonText("Sync")
-              .setDisabled(!plugin.hasDesktopBridgePairing())
-              .onClick(async () => {
-                try {
-                  await plugin.pushSnapshotNow();
-                  new Notice("Dainvo desktop snapshot sent.");
-                } catch (error) {
-                  new Notice(formatError(error));
-                } finally {
-                  actions.refresh();
-                }
-              }),
-          );
-      }, { aliases: ["snapshot", "desktop sync"] }),
     ],
   };
 }
@@ -403,32 +469,30 @@ function buildDailyNoteDefinitions(
   const settings = plugin.settings;
   return {
     type: "group",
-    heading: "Daily Notes task creation",
+    heading: "Daily Notes",
     visible: () => Platform.isDesktopApp,
     items: [
-      row("Daily Notes status", (setting) => {
-        setting.setDesc("Loading…");
-        void plugin.resolveDailyNoteSettings().then((resolved) => {
-          setting.setDesc(
-            `${settings.dailyNoteSettingsOverrideEnabled ? "Override" : "Obsidian"} · format ${resolved.dateFormat} · folder ${resolved.folder || "(vault root)"}`,
-          );
-        });
-      }, { searchable: false }),
       row("Enable Daily Notes task creation", (setting) => {
         setting
-          .setDesc("Allows Dainvo desktop to create tasks in today's daily note.")
+          .setDesc("Allow Dainvo desktop to add tasks to today's daily note.")
           .addToggle((toggle) =>
             toggle
               .setValue(settings.dailyNoteCreateEnabled)
               .onChange(async (value) => {
                 settings.dailyNoteCreateEnabled = value;
                 await plugin.saveSettings();
+                actions.refresh();
               }),
           );
+        if (settings.dailyNoteCreateEnabled) {
+          void plugin.resolveDailyNoteSettings().then((resolved) => {
+            setting.setDesc(`Using ${settings.dailyNoteSettingsOverrideEnabled ? "custom settings" : "Obsidian Daily Notes or Periodic Notes"} · ${resolved.dateFormat} · ${resolved.folder || "vault root"}`);
+          }).catch(() => setting.setDesc("Daily note settings could not be read. Check that Daily Notes or Periodic Notes is enabled."));
+        }
       }),
-      row("Override Obsidian Daily Notes settings", (setting) => {
+      row("Use custom Daily Notes settings", (setting) => {
         setting
-          .setDesc("Off uses active Obsidian Daily Notes or Periodic Notes settings.")
+          .setDesc("Use a different date format, folder or template for tasks created by Dainvo. Leave off to follow Obsidian.")
           .addToggle((toggle) =>
             toggle
               .setValue(settings.dailyNoteSettingsOverrideEnabled)
@@ -438,7 +502,7 @@ function buildDailyNoteDefinitions(
                 actions.refresh();
               }),
           );
-      }, { aliases: ["Periodic Notes", "daily note override"] }),
+      }, { aliases: ["Periodic Notes", "daily note override", "Override Obsidian Daily Notes settings"], visible: () => settings.dailyNoteCreateEnabled }),
       row("Copy current Obsidian settings", (setting) => {
         setting
           .setDesc("Copies detected format, folder, and template into overrides.")
@@ -448,23 +512,23 @@ function buildDailyNoteDefinitions(
               actions.refresh();
             }),
           );
-      }),
+      }, { visible: () => settings.dailyNoteCreateEnabled && settings.dailyNoteSettingsOverrideEnabled }),
       textRow("Date format", "YYYY-MM-DD", () => settings.dailyNoteDateFormat, async (value) => {
         settings.dailyNoteDateFormat = value.trim();
         await plugin.saveSettings();
-      }, () => !settings.dailyNoteSettingsOverrideEnabled),
+      }, () => settings.dailyNoteCreateEnabled && settings.dailyNoteSettingsOverrideEnabled),
       textRow("Folder", "Daily", () => settings.dailyNoteFolder, async (value) => {
         settings.dailyNoteFolder = value.trim();
         await plugin.saveSettings();
-      }, () => !settings.dailyNoteSettingsOverrideEnabled),
+      }, () => settings.dailyNoteCreateEnabled && settings.dailyNoteSettingsOverrideEnabled),
       textRow("Template path", "Templates/Daily.md", () => settings.dailyNoteTemplatePath, async (value) => {
         settings.dailyNoteTemplatePath = value.trim();
         await plugin.saveSettings();
-      }, () => !settings.dailyNoteSettingsOverrideEnabled),
+      }, () => settings.dailyNoteCreateEnabled && settings.dailyNoteSettingsOverrideEnabled),
       textRow("Section heading", "## Dainvo", () => settings.dailyNoteSectionHeading, async (value) => {
         settings.dailyNoteSectionHeading = value.trim() || "## Dainvo";
         await plugin.saveSettings();
-      }),
+      }, () => settings.dailyNoteCreateEnabled),
     ],
   };
 }
@@ -476,17 +540,13 @@ function buildItemNoteDefinitions(
   const settings = plugin.settings;
   return {
     type: "group",
-    heading: "Dainvo item notes",
+    heading: "Event, meeting and bucket notes",
     visible: () => Platform.isDesktopApp,
     items: [
-      infoRow(
-        "About Dainvo item notes",
-        "Controls where Dainvo creates Markdown notes for calendar events, meetings, and buckets in this vault. Changes are exported to a paired Dainvo desktop app.",
-      ),
       row("Note placement", (setting) => {
         setting
           .setDesc(
-            "Store item notes beside the matching daily note, or under a dedicated vault-relative folder.",
+            "Keep event, meeting and bucket notes beside Daily Notes, or in their own folder. Note files stay in your vault.",
           )
           .addDropdown((dropdown) =>
             dropdown
@@ -527,11 +587,11 @@ function buildItemNoteDefinitions(
                 }
               }),
           );
-      }),
+      }, { visible: () => settings.itemNotePlacement === "dedicated-folder" }),
       row("Create a day folder", (setting) => {
         setting
           .setDesc(
-            "In dedicated mode, add a dd mm yyyy directory below the year and month.",
+            "Add a day folder named dd mm yyyy inside the year and month folders.",
           )
           .addToggle((toggle) =>
             toggle
@@ -546,7 +606,7 @@ function buildItemNoteDefinitions(
                 }
               }),
           );
-      }),
+      }, { visible: () => settings.itemNotePlacement === "dedicated-folder" }),
       row("Include start time", (setting) => {
         setting
           .setDesc("Adds hh-mm before the title for timed items.")
@@ -565,7 +625,7 @@ function buildItemNoteDefinitions(
       }),
       row("New note content", (setting) => {
         setting
-          .setDesc("Start new Markdown files blank or with the saved title as h1.")
+          .setDesc("Start with an empty note or add the event, meeting or bucket title as a heading.")
           .addDropdown((dropdown) =>
             dropdown
               .addOption("title-heading", "Title as heading")
@@ -594,17 +654,13 @@ function buildProjectNoteDefinitions(
   const settings = plugin.settings;
   return {
     type: "group",
-    heading: "Dainvo project notes",
+    heading: "Project notes",
     visible: () => Platform.isDesktopApp,
     items: [
-      infoRow(
-        "About Dainvo project notes",
-        "Choose the vault-relative Projects directory used by a paired Dainvo desktop app. Project note files and Markdown content remain local to this vault.",
-      ),
       row("Projects folder", (setting) => {
         setting
           .setDesc(
-            "Select an existing vault folder or enter a safe relative path. Dainvo creates it when the first project note is added.",
+            "Folder for notes created by Dainvo desktop. Choose an existing folder or enter a new path inside this vault. It is created with the first project note.",
           )
           .addText((input) => {
             input
@@ -684,17 +740,16 @@ function textRow(
   placeholder: string,
   value: () => string,
   onChange: (value: string) => Promise<void>,
-  disabled: () => boolean = () => false,
+  visible: () => boolean = () => true,
 ): DainvoSettingRow {
   return row(name, (setting) => {
     setting.addText((text) =>
       text
         .setPlaceholder(placeholder)
-        .setDisabled(disabled())
         .setValue(value())
         .onChange(onChange),
     );
-  });
+  }, { visible });
 }
 
 type DestructiveButtonCompatibility = {
@@ -716,9 +771,9 @@ function cloudStatusText(status: string): string {
   const labels: Record<string, string> = {
     disabled: "Disabled",
     signing_in: "Waiting for browser sign-in",
-    normalizing_ids: "Adding or checking stable task IDs",
-    publishing: "Publishing task projections",
-    published: "Published",
+    normalizing_ids: "Adding or checking task markers…",
+    publishing: "Syncing tasks…",
+    published: "Up to date",
     retryable_error: "Temporarily unavailable; retry scheduled",
     paused_signed_out: "Paused: sign in required",
     paused_plan: "Paused: plan does not include mobile sync",
@@ -728,6 +783,24 @@ function cloudStatusText(status: string): string {
     disable_pending: "Disable pending: cloud deletion not yet confirmed",
   };
   return labels[status] ?? status;
+}
+
+function desktopStatusText(status: string): string {
+  if (status === "Paired") return "Connected to Dainvo desktop";
+  if (status === "Snapshot sent" || status.startsWith("Polled ")) return "Connected · Up to date";
+  return "Paired · Sync needs attention";
+}
+
+function mobileSyncDescription(settings: DainvoPluginSettings): string {
+  const details = [settings.vaultName, cloudStatusText(settings.cloudStatus)];
+  if (settings.cloudLastPublishedAt) details.push(`Last synced ${formatSyncTime(settings.cloudLastPublishedAt)}`);
+  if (settings.cloudOperationBacklog > 0) details.push(`${settings.cloudOperationBacklog} waiting mobile change${settings.cloudOperationBacklog === 1 ? "" : "s"}`);
+  return details.join(" · ");
+}
+
+function formatSyncTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function formatError(error: unknown): string {

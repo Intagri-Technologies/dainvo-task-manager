@@ -6,26 +6,62 @@ import {
   SettingGroup,
   type ButtonComponent,
   type SettingDefinitionItem,
+  type SettingDefinitionPage,
 } from "obsidian";
 
 import type DainvoTaskManagerPlugin from "./main";
-import { buildDainvoSettingDefinitions } from "./settingsDefinitions";
+import {
+  buildDainvoSettingDefinitions,
+  buildDesktopPairingDefinitions,
+  buildMobileSyncOptions,
+  type DainvoSettingsActions,
+} from "./settingsDefinitions";
 import type { CloudPublisherVault, StableIdMode } from "./types";
 
 export class DainvoTaskManagerSettingTab extends PluginSettingTab {
+  private legacyPageNames: string[] = [];
+
   constructor(private readonly plugin: DainvoTaskManagerPlugin) {
     super(plugin.app, plugin);
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return buildDainvoSettingDefinitions(this.plugin, {
-      refresh: () => this.refreshDeclarativeSettings(),
+    return buildDainvoSettingDefinitions(this.plugin, this.settingActions());
+  }
+
+  private settingActions(
+    refresh = () => this.refreshDeclarativeSettings(),
+  ): DainvoSettingsActions {
+    return {
+      refresh,
+      openDesktopPairing: () => this.openSettingsOptions(
+        "Desktop pairing",
+        (actions) => [buildDesktopPairingDefinitions(this.plugin, actions)],
+      ),
+      openMobileSyncOptions: () => this.openSettingsOptions(
+        "Mobile sync options",
+        (actions) => buildMobileSyncOptions(this.plugin, actions),
+      ),
       setStableIdMode: (mode) => this.setStableIdModeWithConfirmation(mode),
       enableCloudSync: () => this.enableCloudSyncWithConfirmation(),
       useThisDeviceAsPublisher: () =>
         this.useThisDeviceAsPublisherWithConfirmation(),
       disableCloudSync: () => this.disableCloudSyncWithConfirmation(),
-    });
+    };
+  }
+
+  private openSettingsOptions(
+    title: string,
+    definitions: (actions: DainvoSettingsActions) => SettingDefinitionItem[],
+  ): void {
+    const modal = new SettingsOptionsModal(
+      this.plugin,
+      title,
+      () => definitions(this.settingActions(() => modal.render())),
+      () => this.refreshDeclarativeSettings(),
+    );
+    modal.open();
+    modal.contentEl.focus();
   }
 
   private refreshDeclarativeSettings(): void {
@@ -38,35 +74,28 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.legacyPageNames = [];
     this.renderLegacyDefinitions();
   }
 
   private renderLegacyDefinitions(): void {
     const { containerEl } = this;
     containerEl.empty();
-    for (const definition of this.getSettingDefinitions()) {
-      if (
-        !("type" in definition) ||
-        definition.type !== "group" ||
-        !isDefinitionVisible(definition)
-      ) {
-        continue;
-      }
-      const group = new SettingGroup(containerEl);
-      if (definition.heading) {
-        group.setHeading(definition.heading);
-      }
-      for (const item of definition.items ?? []) {
-        if (!("render" in item) || !item.render || !isDefinitionVisible(item)) {
-          continue;
-        }
-        const setting = new Setting(group.listEl).setName(item.name);
-        if (item.desc) {
-          setting.setDesc(item.desc);
-        }
-        item.render(setting, group);
-      }
+    const definitions = this.getSettingDefinitions();
+    const page = findSettingsPage(definitions, this.legacyPageNames.at(-1) ?? null);
+    if (page) {
+      new Setting(containerEl)
+        .setName(page.name)
+        .setHeading()
+        .addButton((button) => button.setButtonText("Back").onClick(() => {
+          this.legacyPageNames.pop();
+          this.renderLegacyDefinitions();
+        }));
     }
+    renderSettingGroups(containerEl, page?.items ?? definitions, (name) => {
+      this.legacyPageNames.push(name);
+      this.renderLegacyDefinitions();
+    });
   }
 
   private async enableCloudSyncWithConfirmation(): Promise<void> {
@@ -125,6 +154,88 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
       return;
     }
     await this.plugin.disableCloudSync();
+  }
+}
+
+class SettingsOptionsModal extends Modal {
+  constructor(
+    plugin: DainvoTaskManagerPlugin,
+    private readonly titleText: string,
+    private readonly definitions: () => SettingDefinitionItem[],
+    private readonly refreshSettings: () => void,
+  ) {
+    super(plugin.app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.titleText);
+    this.render();
+    this.contentEl.setAttribute("tabindex", "-1");
+    this.contentEl.focus();
+  }
+
+  render(): void {
+    this.contentEl.empty();
+    renderSettingGroups(this.contentEl, this.definitions());
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    this.refreshSettings();
+  }
+}
+
+function renderSettingGroups(
+  containerEl: HTMLElement,
+  definitions: SettingDefinitionItem[],
+  onOpenPage?: (name: string) => void,
+): void {
+  for (const definition of definitions) {
+    if (
+      !("type" in definition) ||
+      definition.type !== "group" ||
+      !isDefinitionVisible(definition)
+    ) {
+      continue;
+    }
+    const group = new SettingGroup(containerEl);
+    if (definition.heading) {
+      group.setHeading(definition.heading);
+    }
+    for (const item of definition.items ?? []) {
+      if (!isDefinitionVisible(item)) {
+        continue;
+      }
+      if ("type" in item && item.type === "page") {
+        const setting = new Setting(group.listEl).setName(item.name);
+        if (item.desc) setting.setDesc(item.desc);
+        setting.addButton((button) => button.setButtonText("Open").onClick(() => {
+          onOpenPage?.(item.name);
+        }));
+        continue;
+      }
+      if (!("render" in item) || !item.render) continue;
+      const setting = new Setting(group.listEl).setName(item.name);
+      if (item.desc) {
+        setting.setDesc(item.desc);
+      }
+      item.render(setting, group);
+    }
+  }
+}
+
+function findSettingsPage(
+  definitions: SettingDefinitionItem[],
+  name: string | null,
+): SettingDefinitionPage | undefined {
+  if (!name) return undefined;
+  for (const definition of definitions) {
+    if (!("type" in definition) || !isDefinitionVisible(definition)) continue;
+    if (definition.type === "page" && definition.name === name) return definition;
+    if (definition.items) {
+      const page = findSettingsPage(definition.items, name);
+      if (page) return page;
+    }
   }
 }
 

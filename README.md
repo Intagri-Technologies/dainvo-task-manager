@@ -2,14 +2,14 @@
 
 ## Project notes
 
-On Obsidian desktop, **Settings → Dainvo Task Manager → Dainvo project notes**
+On Obsidian desktop, **Settings → Dainvo Task Manager → Notes → Project notes**
 selects the vault-relative Projects directory used by a locally paired Dainvo
 desktop app. The folder defaults to `Projects` and is created lazily when the
 first Project note is added. Project note files and Markdown content stay in
 the vault and are not included in Dainvo mobile task sync.
 
-After updating the plugin, confirm that **Dainvo desktop bridge** still shows
-**Paired**. If an older installation already shows **Not paired**, pair that
+After updating the plugin, confirm that **Desktop pairing** still shows
+**Connected**. If an older installation shows **Not connected**, pair that
 vault once more; the next snapshot immediately sends the selected Projects
 folder to Dainvo desktop without changing any note files.
 
@@ -36,10 +36,17 @@ is optional.
 ## Set up mobile sync
 
 1. Open **Obsidian Settings > Dainvo Task Manager**.
-2. Select **Sign in** under **Dainvo mobile task sync**.
+2. Select **Sign in** beside **Dainvo account** at the top of the page.
 3. Use the same Dainvo account that is signed in on your phone.
-4. Keep the recommended **Backfill existing + future** option.
-5. Select **Enable** and wait for **Published**.
+4. Keep **General > Task markers** set to **Existing and new tasks (recommended)**.
+5. Select **Enable** beside **Mobile sync** and wait for **Up to date**.
+
+The main settings page keeps your account, desktop pairing and mobile sync
+together, with each status beside its controls. **Desktop pairing > Options**
+opens the bridge URL, pairing code and disconnect controls. **Mobile sync >
+Options** opens sync help, recovery actions and **Disable and delete**.
+**Notes** groups Daily Notes, event/meeting/bucket notes and project-note folders
+into separate pages. Desktop pairing and note options appear only on desktop.
 
 One Obsidian vault can be connected to Dainvo mobile at a time. You can switch
 vaults from the plugin settings without deleting or changing the notes in the
@@ -162,7 +169,7 @@ rejects the note write and directs the action through its task tools and task
 permissions instead. The desktop and plugin run the same syntax fixtures so
 frontmatter and fenced-code examples are not mistaken for tasks.
 
-The **Dainvo item notes** plugin settings control whether event, video-meeting,
+The **Notes > Event, meeting and bucket notes** settings control whether event, video-meeting,
 and bucket notes are placed beside Daily Notes or in a dedicated vault folder.
 Dedicated placement can add year, month, and optional day directories. You can
 also include timed-item start times in filenames and choose whether new files
@@ -183,7 +190,7 @@ operating system routes to Dainvo desktop.
 ## Help
 
 If tasks are not appearing, confirm that Obsidian is open and the plugin status
-is **Published**. For release details, see the [changelog](CHANGELOG.md). To
+is **Up to date**. For release details, see the [changelog](CHANGELOG.md). To
 report a problem, open a
 [GitHub issue](https://github.com/Intagri-Technologies/dainvo-task-manager/issues).
 
