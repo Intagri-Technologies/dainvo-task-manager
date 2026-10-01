@@ -89,55 +89,77 @@ describe("durable publication validation", () => {
   });
 });
 
-describe("cloud pending-operation conflict handling", () => {
+describe("cloud pending operations: the last edit wins", () => {
+  const noteModifiedAt = Date.parse("2026-09-30T10:00:00.000Z");
+
   it("treats an already matching local status as applied", () => {
     expect(classifyPendingOperation(operation, "completed", "completed")).toBe(
       "already_applied",
     );
   });
 
-  it("rejects stale and missing base versions when status differs", () => {
+  it("writes when the vault status is still the published one, whatever else changed", () => {
+    // A title edit or a note move bumps the server version; it is not a clash.
     expect(
       classifyPendingOperation(
         { ...operation, base_server_version: 3 },
         "open",
         "completed",
+        noteModifiedAt,
       ),
-    ).toBe("stale_server_version");
+    ).toBe("write");
     expect(
       classifyPendingOperation(
         { ...operation, base_server_version: null },
         "open",
         "completed",
+        noteModifiedAt,
       ),
-    ).toBe("stale_server_version");
+    ).toBe("write");
   });
 
-  it("conflicts when Markdown changed locally after the server projection", () => {
-    expect(classifyPendingOperation(operation, "completed", "open")).toBe(
-      "local_status_changed",
-    );
+  it("writes the phone's change when it is newer than the vault's status change", () => {
+    const complete = {
+      ...operation,
+      current_task_status: "completed" as const,
+      payload: { edited_at: "2026-09-30T10:05:00.000Z" },
+    };
+    expect(
+      classifyPendingOperation(complete, "open", "completed", noteModifiedAt),
+    ).toBe("write");
   });
 
-  it("allows a write only when server and local state still agree", () => {
-    expect(classifyPendingOperation(operation, "open", "completed")).toBe(
-      "write",
-    );
+  it("keeps the vault's status when the note changed after the phone's edit", () => {
+    const complete = {
+      ...operation,
+      current_task_status: "completed" as const,
+      payload: { edited_at: "2026-09-30T09:55:00.000Z" },
+    };
+    expect(
+      classifyPendingOperation(complete, "open", "completed", noteModifiedAt),
+    ).toBe("superseded");
+    // Without edited_at, the relay's arrival time is the phone's edit time.
+    expect(
+      classifyPendingOperation(
+        { ...complete, payload: undefined, requested_at: "2026-09-30T09:50:00.000Z" },
+        "open",
+        "completed",
+        noteModifiedAt,
+      ),
+    ).toBe("superseded");
   });
 
-  it("allows delete only for the current projected version and status", () => {
+  it("always writes a delete", () => {
     const deletion = { ...operation, operation_type: "delete" as const };
     expect(classifyPendingOperation(deletion, "open", null)).toBe("write");
     expect(
       classifyPendingOperation(
         { ...deletion, current_task_server_version: 5 },
-        "open",
+        "completed",
         null,
+        noteModifiedAt,
       ),
-    ).toBe("stale_server_version");
-    expect(classifyPendingOperation(deletion, "completed", null)).toBe(
-      "local_status_changed",
-    );
+    ).toBe("write");
   });
 });
 
@@ -426,7 +448,7 @@ describe("account-wide cloud vault selection", () => {
         committedIntent = structuredClone(input);
         throw new Error("publication_response_lost");
       })
-      .mockImplementationOnce(async (input: CloudPublicationIntent) => ({
+      .mockImplementation(async (input: CloudPublicationIntent) => ({
         publisher_epoch: input.publication.publisher_epoch,
         publication_id: input.publication.publication_id,
         sequence: input.publication.sequence,
@@ -491,10 +513,15 @@ describe("account-wide cloud vault selection", () => {
 
     await coordinator.requestSync();
 
-    expect(pushSnapshot).toHaveBeenCalledTimes(2);
+    // The lost publication is replayed as it was, then the vault as it is
+    // now is published after it.
+    expect(pushSnapshot).toHaveBeenCalledTimes(3);
     expect(pushSnapshot.mock.calls[1]?.[0]).toEqual(committedIntent);
+    expect(pushSnapshot.mock.calls[2]?.[0]).toMatchObject({
+      publication: { sequence: 2, base_sequence: 1 },
+    });
     expect(settings.cloudPendingPublication).toBeNull();
-    expect(settings.cloudPublicationSequence).toBe(1);
+    expect(settings.cloudPublicationSequence).toBe(2);
   });
 });
 
@@ -522,6 +549,106 @@ describe("cloud operation drain continuation", () => {
     expect(settings.cloudOperationJournal.healthy.state).toBe('written_pending_publish');
     await internal.applyPendingOperations();
     expect(process).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves a phone change the vault overtook as applied, without a conflict", async () => {
+    const settings = structuredClone(DEFAULT_SETTINGS);
+    const task = relayTask("task", "Tasks.md", "open");
+    settings.cloudOperationJournal.phone = {
+      state: "pending_write",
+      receivedAt: "2026-09-30T10:00:00.000Z",
+      operation: {
+        ...operation,
+        operation_id: "phone",
+        provider_task_id: "task",
+        current_task_status: "completed",
+        payload: { edited_at: "2026-09-30T09:00:00.000Z" },
+      },
+    };
+    const process = vi.fn();
+    const coordinator = new ObsidianCloudSyncCoordinator({
+      getSettings: () => settings, saveSettings: vi.fn().mockResolvedValue(undefined),
+      vault: {
+        getAbstractFileByPath: (path: string) => ({ path, extension: "md", stat: { mtime: Date.parse("2026-09-30T09:30:00.000Z") } }),
+        process,
+      },
+    } as never, {} as never, {} as never, {} as never);
+    const internal = coordinator as unknown as { taskIndex: Map<string, unknown[]>; applyPendingOperations(): Promise<{ resolutions: unknown[] }> };
+    internal.taskIndex.set("Tasks.md", [task]);
+    const result = await internal.applyPendingOperations();
+    expect(result.resolutions).toEqual([
+      { operation_id: "phone", status: "applied", result: { reason: "superseded_by_vault" } },
+    ]);
+    expect(process).not.toHaveBeenCalled();
+  });
+
+  it("writes waiting phone changes before publishing, then publishes once", async () => {
+    const settings = {
+      ...structuredClone(DEFAULT_SETTINGS),
+      vaultId: "stable-current",
+      vaultName: "Notes",
+      cloudVaultKey: "stable-current",
+      cloudSyncEnabled: true,
+      cloudStatus: "published" as const,
+      cloudEntitled: true,
+    };
+    let content = "- [ ] Phone task ^task-id";
+    const file = { path: "Tasks.md", extension: "md", stat: { mtime: 1 } };
+    const calls: string[] = [];
+    const pushSnapshot = vi.fn(async (input: CloudPublicationIntent) => {
+      calls.push(`push:${JSON.stringify(input.upserts.map((row) => row.status))}`);
+      return {
+        publisher_epoch: input.publication.publisher_epoch,
+        publication_id: input.publication.publication_id,
+        sequence: input.publication.sequence,
+        base_sequence: input.publication.base_sequence,
+      };
+    });
+    const coordinator = new ObsidianCloudSyncCoordinator(
+      {
+        vault: {
+          getMarkdownFiles: () => [file],
+          cachedRead: vi.fn(async () => content),
+          getAbstractFileByPath: () => file,
+          process: vi.fn(async (_file: unknown, update: (value: string) => string) => {
+            calls.push("write");
+            content = update(content);
+            return content;
+          }),
+        } as never,
+        getSettings: () => settings,
+        saveSettings: vi.fn().mockResolvedValue(undefined),
+        getDeviceId: () => "device",
+        ensureBridgeIdentityAliasSupport: vi.fn().mockResolvedValue(undefined),
+      },
+      { getValidSession: vi.fn().mockResolvedValue({ userId: "user" }) } as never,
+      {
+        getAccess: vi.fn().mockResolvedValue({ allowed: true, plan_name: "Pro", plan_slug: "pro", reason: "" }),
+        listPublisherVaults: vi.fn().mockResolvedValue([]),
+        publishVault: vi.fn().mockResolvedValue({
+          vault: { id: "cloud-vault", publisher_epoch: "publisher-epoch" },
+          publication: { protocol_version: 2, publisher_epoch: "publisher-epoch", last_sequence: 0 },
+        }),
+        pushSnapshot,
+        listPendingOperations: vi.fn(async () => {
+          calls.push("list");
+          return [{ ...operation, provider_task_id: "stable-current:block:task-id" }];
+        }),
+        resolveOperations: vi.fn(async () => {
+          calls.push("resolve");
+          return { resolved: 1, skipped: 0 };
+        }),
+      } as never,
+      {
+        countBackfillCandidates: vi.fn().mockResolvedValue(0),
+        normalize: vi.fn().mockResolvedValue({ changed: 0 }),
+      } as never,
+    );
+
+    await coordinator.requestSync();
+
+    expect(calls).toEqual(["list", "write", 'push:["completed"]', "resolve"]);
+    expect(content).toMatch(/^- \[x\] Phone task ✅ \d{4}-\d{2}-\d{2} \^task-id$/);
   });
 
   it("persists and schedules another turn after a full publisher page", async () => {

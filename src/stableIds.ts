@@ -27,7 +27,7 @@ const STABLE_ID_ALPHABET =
   "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const STABLE_ID_SUFFIX_LENGTH = 6;
 const ORPHANED_DAINVO_ID_TASK_RE =
-  /^(\s*[-*+]\s+\[[ xX]\])\s+\^(?:dainvo|d)-[A-Za-z0-9-]+\s*$/;
+  /^(\s*[-*+]\s+\[[^\]\r\n]\])\s+\^(?:dainvo|d)-[A-Za-z0-9-]+\s*$/;
 
 export class StableIdCoordinator {
   constructor(

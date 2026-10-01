@@ -17,7 +17,7 @@ import type {
   ObsidianSnapshotTask,
   PendingMutationOperation,
 } from "./types";
-import { applyOperationToVault, DainvoWriteBackConflict } from "./writeBack";
+import { applyOperationToVault, type TaskToggleDone } from "./writeBack";
 
 const FULL_RECONCILIATION_MS = 6 * 60 * 60 * 1000;
 const MAX_ACTIVE_TASKS = 300;
@@ -33,6 +33,14 @@ export type CloudSyncHost = {
   getDeviceId(): string;
   ensureBridgeIdentityAliasSupport(): Promise<void>;
   requestCloudContinuation?(): void;
+  /** The Tasks plugin's toggle when Tasks 7.2.0+ is installed. */
+  getTaskToggleDone?(): TaskToggleDone | undefined;
+};
+
+type OperationResolution = {
+  operation_id: string;
+  status: "applied" | "rejected";
+  result?: Record<string, unknown>;
 };
 
 export class ObsidianCloudSyncCoordinator {
@@ -384,8 +392,10 @@ export class ObsidianCloudSyncCoordinator {
     await this.host.saveSettings();
     const fullReconciliation = this.needsFullReconciliation();
     await this.refreshTaskIndex(fullReconciliation);
-    await this.publishCurrentSnapshot(deviceId, fullReconciliation);
 
+    // Phone changes are written first and the vault is published once after
+    // them. Publishing first raced every waiting phone change against the
+    // vault's own copy of the same task.
     const operationFence = {
       cloudVaultId: settings.cloudVaultId,
       deviceId,
@@ -416,8 +426,11 @@ export class ObsidianCloudSyncCoordinator {
     if (operationResult.needsRepublish) {
       this.taskIndex.clear();
       await this.refreshTaskIndex(true);
-      await this.publishCurrentSnapshot(deviceId, true);
     }
+    await this.publishCurrentSnapshot(
+      deviceId,
+      fullReconciliation || operationResult.needsRepublish,
+    );
     if (operationResult.resolutions.length > 0) {
       // A throw (stale_obsidian_publisher included) keeps every journal entry,
       // so the write-back result is re-sent by whichever install owns the
@@ -526,8 +539,9 @@ export class ObsidianCloudSyncCoordinator {
   ): Promise<void> {
     const settings = this.host.getSettings();
     if (settings.cloudPendingPublication) {
+      // An earlier publication whose answer was lost goes first (the server
+      // replays it by id); the current vault is published right after it.
       await this.dispatchPublication(settings.cloudPendingPublication);
-      return;
     }
 
     const owners = this.taskOwners().filter((task) => task.isBlank !== true);
@@ -765,18 +779,10 @@ export class ObsidianCloudSyncCoordinator {
 
   private async applyPendingOperations(): Promise<{
     needsRepublish: boolean;
-    resolutions: Array<{
-      operation_id: string;
-      status: "applied" | "conflict" | "rejected";
-      result?: Record<string, unknown>;
-    }>;
+    resolutions: OperationResolution[];
   }> {
     const settings = this.host.getSettings();
-    const resolutions: Array<{
-      operation_id: string;
-      status: "applied" | "conflict" | "rejected";
-      result?: Record<string, unknown>;
-    }> = [];
+    const resolutions: OperationResolution[] = [];
     let needsRepublish = false;
     // Use the same deterministic first-owner/window selection that was
     // published, so a flagged legacy duplicate can never receive write-back.
@@ -809,62 +815,41 @@ export class ObsidianCloudSyncCoordinator {
       const task = tasks.find(
         (candidate) => candidate.providerTaskId === operation.provider_task_id,
       );
+      // Deleted in the vault means deleted: the phone's change is done and
+      // the next publication removes the task.
       if (!task) {
-        resolutions.push(
-          operation.operation_type === "delete"
-            ? appliedResolution(operation, "task_already_absent")
-            : {
-                operation_id: operation.operation_id,
-                status: "rejected",
-                result: { reason: "task_missing" },
-              },
-        );
+        resolutions.push(appliedResolution(operation, "task_already_absent"));
         continue;
       }
       const disposition = classifyPendingOperation(
         operation,
         task.status,
         desiredStatus,
+        this.noteModifiedAt(task.notePath),
       );
       if (disposition === "already_applied") {
         resolutions.push(appliedResolution(operation));
         continue;
       }
-      if (disposition === "stale_server_version") {
-        resolutions.push({
-          operation_id: operation.operation_id,
-          status: "conflict",
-          result: { reason: "stale_server_version" },
-        });
-        continue;
-      }
-      if (disposition === "local_status_changed") {
-        resolutions.push({
-          operation_id: operation.operation_id,
-          status: "conflict",
-          result: { reason: "local_status_changed" },
-        });
+      if (disposition === "superseded") {
+        resolutions.push(appliedResolution(operation, "superseded_by_vault"));
         continue;
       }
 
       const localOperation = toLocalOperation(operation, task, desiredStatus);
       try {
-        await applyOperationToVault(this.host.vault, localOperation);
+        await applyOperationToVault(this.host.vault, localOperation, {
+          toggleTaskDone: this.host.getTaskToggleDone?.(),
+        });
         entry.state = "written_pending_publish";
         settings.cloudOperationJournal[operation.operation_id] = entry;
         needsRepublish = true;
         resolutions.push(appliedResolution(operation));
         await this.host.saveSettings();
-      } catch (error) {
-        if (error instanceof DainvoWriteBackConflict) {
-          resolutions.push({
-            operation_id: operation.operation_id,
-            status: "conflict",
-            result: { reason: "local_task_changed" },
-          });
-          continue;
-        }
-        // A failed file must not prevent independent targets from progressing.
+      } catch {
+        // The note changed under the write or could not be written. The next
+        // cycle re-reads the vault and tries again; a failed file must not
+        // hold back other tasks.
         entry.attempts = (entry.attempts ?? 0) + 1;
         entry.retryAt = new Date(Date.now() + Math.min(900_000, 5_000 * 2 ** Math.min(entry.attempts - 1, 8))).toISOString();
         entry.lastErrorCode = "publisher_write_failed";
@@ -872,6 +857,13 @@ export class ObsidianCloudSyncCoordinator {
       }
     }
     return { needsRepublish, resolutions };
+  }
+
+  /** The note's modified time, the vault's edit time for last-edit-wins. */
+  private noteModifiedAt(notePath: string): number | null {
+    const file = this.host.vault.getAbstractFileByPath(normalizePath(notePath));
+    const mtime = isMarkdownFile(file) ? file.stat?.mtime : undefined;
+    return typeof mtime === "number" && Number.isFinite(mtime) ? mtime : null;
   }
 
   private async recordFailure(error: unknown): Promise<void> {
@@ -1057,28 +1049,49 @@ export function selectRelayTaskOwners(
   return firstOwners;
 }
 
+/**
+ * The last edit wins; nothing is refused (owner rules, 29 Sep 2026).
+ *
+ * - A delete always goes through.
+ * - The vault already has the phone's status: done.
+ * - The vault's status is still the one last published: the phone's change
+ *   is written. Other fields changing in the vault is not a clash.
+ * - The vault's status changed after the last publication: the newer edit
+ *   wins. The vault's edit time is the note's modified time, the only time
+ *   Obsidian keeps (https://docs.obsidian.md/Reference/TypeScript+API/FileStats/mtime),
+ *   so an edit elsewhere in the note also counts as a vault edit.
+ */
 export function classifyPendingOperation(
   operation: CloudPendingOperation,
   localStatus: "open" | "completed",
   desiredStatus: "open" | "completed" | null,
-):
-  | "already_applied"
-  | "stale_server_version"
-  | "local_status_changed"
-  | "write" {
-  if (desiredStatus !== null && localStatus === desiredStatus) {
+  noteModifiedAtMs: number | null = null,
+): "already_applied" | "superseded" | "write" {
+  if (desiredStatus === null) {
+    return "write";
+  }
+  if (localStatus === desiredStatus) {
     return "already_applied";
   }
-  if (
-    operation.base_server_version === null ||
-    operation.base_server_version !== operation.current_task_server_version
-  ) {
-    return "stale_server_version";
+  if (localStatus === operation.current_task_status) {
+    return "write";
   }
-  if (localStatus !== operation.current_task_status) {
-    return "local_status_changed";
+  const phoneEditedAtMs = phoneEditTime(operation);
+  if (noteModifiedAtMs === null || phoneEditedAtMs === null) {
+    return "write";
   }
-  return "write";
+  return phoneEditedAtMs >= noteModifiedAtMs ? "write" : "superseded";
+}
+
+/** The phone's own edit time, else when the relay received the change. */
+function phoneEditTime(operation: CloudPendingOperation): number | null {
+  const editedAt = operation.payload?.edited_at;
+  const value =
+    typeof editedAt === "string" && editedAt
+      ? editedAt
+      : (operation.requested_at ?? "");
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function toLocalOperation(

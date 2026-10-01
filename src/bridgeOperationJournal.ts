@@ -21,6 +21,13 @@ export async function processJournaledBridgeOperation(input: {
       const receipt = await input.apply(entry.operation, recoveringPrepared || entry.state === "written");
       if (receipt) entry.receipt = receipt;
     } catch (error) {
+      // A failed write leaves no entry behind (a cross-note move keeps its
+      // saved block for the retry). Left as "prepared", the desktop's retry
+      // would be read as an uncertain earlier write and refused every time.
+      if (!entry.move) {
+        delete input.journal[input.operation.id];
+        await input.save();
+      }
       await input.acknowledge(input.operation.id, {
         status: error instanceof DainvoWriteBackConflict ? "conflict" : "failed",
         error: error instanceof Error ? error.message : String(error),

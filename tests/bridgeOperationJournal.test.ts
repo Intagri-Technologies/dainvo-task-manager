@@ -51,4 +51,17 @@ describe("local bridge operation journal", () => {
     await processJournaledBridgeOperation({ operation: operation(), journal, apply, acknowledge, save: async () => { stored = JSON.stringify(journal); } });
     expect(apply).toHaveBeenLastCalledWith(operation(), true);
   });
+
+  it("removes a failed write from the journal so the retry is a fresh write", async () => {
+    const journal: DainvoPluginSettings["bridgeOperationJournal"] = {};
+    const save = vi.fn(async () => undefined);
+    const apply = vi.fn(async () => undefined).mockRejectedValueOnce(new Error("note busy"));
+    const acknowledge = vi.fn(async () => undefined);
+    await processJournaledBridgeOperation({ operation: operation(), journal, save, apply, acknowledge });
+    expect(acknowledge).toHaveBeenLastCalledWith("operation", { status: "failed", error: "note busy" });
+    expect(journal).toEqual({});
+    await processJournaledBridgeOperation({ operation: operation(), journal, save, apply, acknowledge });
+    expect(apply).toHaveBeenLastCalledWith(operation(), false);
+    expect(acknowledge).toHaveBeenLastCalledWith("operation", { status: "succeeded" });
+  });
 });

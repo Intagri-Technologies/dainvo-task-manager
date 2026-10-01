@@ -31,12 +31,14 @@ export async function buildSnapshotPayload(input: {
         content,
       });
 
+    const noteModifiedAt = noteModifiedIso(file.stat?.mtime);
     for (const task of parsedTasks) {
       const alias = task.blockId
         ? input.settings.identityAliases[task.blockId]
         : undefined;
       tasks.push({
         ...task,
+        ...(noteModifiedAt ? { noteModifiedAt } : {}),
         ...(alias?.bridgePending
           ? {
               previousProviderTaskId: buildProviderTaskId({
@@ -65,4 +67,10 @@ export async function buildSnapshotPayload(input: {
     writeCapabilities: ["cross_note_hierarchy_move_v1", "task_create_v1", "write_receipt_v1"],
     tasks,
   };
+}
+
+function noteModifiedIso(mtime: number | undefined): string | null {
+  return typeof mtime === "number" && Number.isFinite(mtime) && mtime > 0
+    ? new Date(mtime).toISOString()
+    : null;
 }

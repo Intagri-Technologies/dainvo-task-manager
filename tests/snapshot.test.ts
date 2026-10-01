@@ -6,7 +6,10 @@ import { DEFAULT_SETTINGS } from "../src/types";
 
 describe("snapshot item-note contract", () => {
   it("exports item-note settings without changing schema v2 task discovery", async () => {
-    const file = { path: "Item Notes/2026/08 - August/Team Sync.md" };
+    const file = {
+      path: "Item Notes/2026/08 - August/Team Sync.md",
+      stat: { mtime: Date.parse("2026-09-30T10:00:00.000Z") },
+    };
     const vault = {
       getMarkdownFiles: () => [file],
       cachedRead: async () => "- [ ] Follow up from the meeting",
@@ -62,6 +65,8 @@ describe("snapshot item-note contract", () => {
     expect(payload.tasks[0]).toMatchObject({
       notePath: file.path,
       title: "Follow up from the meeting",
+      // The desktop compares it with waiting Dainvo changes (last edit wins).
+      noteModifiedAt: "2026-09-30T10:00:00.000Z",
     });
   });
 });

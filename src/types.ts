@@ -166,6 +166,8 @@ export type ObsidianSnapshotTask = {
   parentProviderTaskId: string | null;
   siblingOrder: number;
   isBlank?: boolean;
+  /** The note's modified time (ISO), sent to the desktop for last-edit-wins. */
+  noteModifiedAt?: string;
 };
 
 export type ParsedTaskCandidate = {
@@ -439,6 +441,8 @@ export type CloudPendingOperation = {
   base_server_version: number | null;
   current_task_status: "open" | "completed";
   current_task_server_version: number;
+  /** The phone sends `edited_at`, its local edit time. */
+  payload?: Record<string, unknown>;
 };
 
 export type CloudTaskProjection = {

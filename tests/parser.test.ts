@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { buildOpenUri, parseMarkdownTasks } from "../src/parser";
+import { localDateKey, parseTaskLine } from "../src/taskLine";
 
 describe("parseMarkdownTasks", () => {
   it("matches the shared desktop/plugin task-syntax fixture", () => {
@@ -267,5 +268,31 @@ describe("parseMarkdownTasks", () => {
       "obsidian://open?vault=Work%20Vault&file=Daily%20Notes%2F2026-06-07.md%23%5Edainvo-test",
     );
     expect(openUri).not.toContain("+");
+  });
+});
+
+describe("task statuses, tags and dates", () => {
+  it("reads [/] as open and [-] as done, as the Tasks plugin does", () => {
+    expect(parseTaskLine("- [/] Drafting")?.status).toBe("open");
+    expect(parseTaskLine("- [-] Dropped")?.status).toBe("completed");
+    expect(parseTaskLine("- [>] Forwarded")?.status).toBe("open");
+    expect(parseTaskLine("- [ab] Not a task")).toBeNull();
+  });
+
+  it("reads Unicode tags and leaves number-only hashes in the title", () => {
+    const parsed = parseTaskLine("- [ ] Buy #café beans #2026 #projet/été");
+    expect(parsed?.labels).toEqual(["café", "projet/été"]);
+    expect(parsed?.title).toBe("Buy beans #2026");
+  });
+
+  it("reads the Dataview completion date and keeps it out of the title", () => {
+    const parsed = parseTaskLine("- [x] Pay rent [completion:: 2026-09-30]");
+    expect(parsed?.completedAt).toBe("2026-09-30T00:00:00.000Z");
+    expect(parsed?.title).toBe("Pay rent");
+  });
+
+  it("uses the local calendar day for a completion date", () => {
+    expect(localDateKey(new Date(2026, 8, 30, 23, 30))).toBe("2026-09-30");
+    expect(localDateKey(new Date(2026, 0, 1, 0, 5))).toBe("2026-01-01");
   });
 });

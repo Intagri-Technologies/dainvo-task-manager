@@ -59,9 +59,16 @@ The plugin edits existing notes through Obsidian's Vault API and saves a local
 operation receipt before acknowledging each write. If the acknowledgement is
 lost, it can acknowledge the saved receipt without repeating the edit. If the
 plugin stops before saving the receipt, a task create is recovered only when
-the exact task line and stable marker still exist. An absent or changed marker
-needs conflict review, so the plugin cannot recreate a task that was moved or
-removed after an interrupted write. This journal stays in the vault's plugin
+the exact task line and stable marker still exist. When the marker is absent,
+that attempt reports a failure and clears its local entry, and Dainvo's retry
+writes the task as a new create.
+
+A task line edited in Obsidian after Dainvo read it is found again by its
+marker, and only Dainvo's change is applied to the current line: the checkbox
+and completion date, or the fields changed in Dainvo. Tags, Dataview fields and
+other metadata stay untouched. Completing a recurring (`🔁`) task uses the
+Tasks plugin 7.2.0 or later when it is installed, so the next occurrence
+follows your Tasks settings. This journal stays in the vault's plugin
 settings and is not uploaded to Dainvo mobile sync.
 
 ## About task markers

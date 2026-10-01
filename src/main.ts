@@ -53,7 +53,7 @@ import {
   type StableIdMode,
 } from "./types";
 import { resolveVaultIdentity } from "./vaultIdentity";
-import { applyOperationToVault } from "./writeBack";
+import { applyOperationToVault, type TaskToggleDone } from "./writeBack";
 import { processJournaledBridgeOperation } from "./bridgeOperationJournal";
 
 const SNAPSHOT_DEBOUNCE_MS = 1_500;
@@ -74,6 +74,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   private isOperationPollInFlight = false;
   private hasPendingSnapshotRetry = false;
   private hasQueuedSnapshot = false;
+  private bridgeAliasSupport: boolean | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -106,6 +107,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         ensureBridgeIdentityAliasSupport: () =>
           this.ensureBridgeIdentityAliasSupport(),
         requestCloudContinuation: () => this.scheduleCloudSync(),
+        getTaskToggleDone: () => this.getTaskToggleDone(),
       },
       this.oauthClient,
       cloudClient,
@@ -262,6 +264,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       projectNoteSettings: this.resolveProjectNoteSettings(),
     });
 
+    this.bridgeAliasSupport = null;
     this.settings.localPublisherEpoch = result.publisherEpoch;
     this.settings.localPublicationSequence = 0;
     this.settings.localPendingPublication = null;
@@ -406,7 +409,8 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     if (!Platform.isDesktopApp) {
       throw new Error("The local Dainvo bridge is available on desktop only.");
     }
-    if (this.settings.stableIdJournal) {
+    // Without mobile sync, this snapshot finishes an interrupted id run itself.
+    if (this.settings.stableIdJournal && this.settings.cloudSyncEnabled) {
       this.hasPendingSnapshotRetry = true;
       throw new Error(
         "Stable task ID migration is still in progress. The desktop snapshot will retry after it finishes.",
@@ -420,7 +424,11 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     this.isSnapshotInFlight = true;
     try {
       await this.ensureVaultIdentity();
-      const payload = this.settings.localPendingPublication ?? await buildSnapshotPayload({
+      await this.normalizeBridgeStableIds();
+      // Every attempt sends the vault as it is now, never an older inventory.
+      // A publication whose answer was lost keeps its sequence under a new
+      // id; the desktop applies the newer copy and ignores an older one.
+      const payload = await buildSnapshotPayload({
         vault: this.app.vault,
         pluginVersion: this.manifest.version,
         settings: this.settings,
@@ -428,7 +436,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
         itemNoteSettings: this.resolveItemNoteSettings(),
         projectNoteSettings: this.resolveProjectNoteSettings(),
       });
-      if (this.settings.localPublisherEpoch && !payload.publication) {
+      if (this.settings.localPublisherEpoch) {
         const baseSequence = this.settings.localPublicationSequence ?? 0;
         payload.publication = { version: 2, epoch: this.settings.localPublisherEpoch,
           sequence: baseSequence + 1, baseSequence, id: crypto.randomUUID(), completeInventory: true };
@@ -483,6 +491,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
           save: () => this.saveSettings(),
           apply: (queued, recoveringPrepared) => applyOperationToVault(this.app.vault, queued, {
             recoveringPreparedCreate: recoveringPrepared,
+            toggleTaskDone: this.getTaskToggleDone(),
             vaultIdentity: { vaultId: this.settings.vaultId, vaultName: this.app.vault.getName() },
             moveJournal: this.settings.bridgeOperationJournal[queued.id]?.move,
             saveMoveJournal: async (move) => { this.settings.bridgeOperationJournal[queued.id].move = move; await this.saveSettings(); },
@@ -832,6 +841,59 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       const lastLine = Math.max(anchor.line, head.line);
       return candidateLine >= firstLine && candidateLine <= lastLine;
     });
+  }
+
+  /**
+   * Stable `^d-` ids for vaults paired only with Dainvo desktop, as mobile
+   * sync already does, so a task keeps its identity when lines move. Mobile
+   * sync normalizes ids in its own cycle. An older desktop without identity
+   * aliases keeps line ids.
+   */
+  private async normalizeBridgeStableIds(): Promise<void> {
+    if (this.settings.cloudSyncEnabled) {
+      return;
+    }
+    if (this.bridgeAliasSupport === null) {
+      const status = await this.bridgeClient.getStatus().catch(() => null);
+      if (!status) {
+        return;
+      }
+      this.bridgeAliasSupport =
+        status.capabilities?.includes("task_identity_alias_v1") === true;
+    }
+    if (!this.bridgeAliasSupport) {
+      return;
+    }
+    try {
+      await this.stableIds.normalize({
+        mode: this.settings.cloudIdentityMode,
+        deviceId: this.secureStore.getOrCreateDeviceId(),
+      });
+    } catch (error) {
+      if (this.settings.stableIdJournal) {
+        this.hasPendingSnapshotRetry = true;
+        throw error;
+      }
+    }
+  }
+
+  /** The Tasks plugin's toggle, when Tasks 7.2.0+ is installed and enabled. */
+  private getTaskToggleDone(): TaskToggleDone | undefined {
+    // https://publish.obsidian.md/tasks/Advanced/Tasks+Api
+    const plugins = (
+      this.app as unknown as {
+        plugins?: { plugins?: Record<string, unknown> };
+      }
+    ).plugins?.plugins;
+    const api = (
+      plugins?.["obsidian-tasks-plugin"] as
+        | { apiV1?: { executeToggleTaskDoneCommand?: unknown } }
+        | undefined
+    )?.apiV1;
+    const toggle = api?.executeToggleTaskDoneCommand;
+    return typeof toggle === "function"
+      ? (line, path) => String(toggle.call(api, line, path))
+      : undefined;
   }
 
   private async ensureBridgeIdentityAliasSupport(): Promise<void> {

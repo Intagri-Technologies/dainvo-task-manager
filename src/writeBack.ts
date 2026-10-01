@@ -1,7 +1,7 @@
 import type { TFile, Vault } from "obsidian";
 
 import { parseMarkdownTasks } from "./parser";
-import { hashTaskLine, patchMarkdownTaskLine } from "./taskLine";
+import { hashTaskLine, parseTaskLine, patchMarkdownTaskLine } from "./taskLine";
 import type { PendingMutationOperation, PendingOperation, CrossNoteMoveJournal, WriteBackReceipt } from "./types";
 
 export class DainvoWriteBackConflict extends Error {
@@ -11,7 +11,16 @@ export class DainvoWriteBackConflict extends Error {
   }
 }
 
-type WriteOptions = {
+/**
+ * The Tasks plugin's toggle (`apiV1.executeToggleTaskDoneCommand`, Tasks
+ * 7.2.0+): returns the toggled line, or two lines when a recurring task was
+ * completed. https://publish.obsidian.md/tasks/Advanced/Tasks+Api
+ */
+export type TaskToggleDone = (line: string, path: string) => string;
+
+type ContentOptions = { toggleTaskDone?: TaskToggleDone };
+
+type WriteOptions = ContentOptions & {
   recoveringPreparedCreate?: boolean;
   vaultIdentity?: { vaultId: string; vaultName: string };
   moveJournal?: CrossNoteMoveJournal;
@@ -39,7 +48,7 @@ export async function applyOperationToVault(
         const expected = patchSourceTaskLine(operation.source.rawTaskLine, operation);
         if (matching.length === 1 && matching[0] === expected) return value;
       }
-      return applyOperationToContent(value, operation);
+      return applyOperationToContent(value, operation, options);
     });
   }
   if (!options.vaultIdentity) return;
@@ -264,6 +273,7 @@ function findBlockIdLineInLines(
 export function applyOperationToContent(
   content: string,
   operation: PendingMutationOperation,
+  options: ContentOptions = {},
 ): string {
   if (operation.operationType === "create") throw new DainvoWriteBackConflict("Use the vault task-create writer.");
   if (operation.operationType === "move") {
@@ -287,25 +297,113 @@ export function applyOperationToContent(
     lines.pop();
   }
 
-  const lineIndex = findSourceLineIndex(lines, operation.source);
+  // A line edited in the vault since Dainvo read it is found again by its
+  // block id; our change is then applied on top of the current line (the
+  // last edit wins, nothing becomes a conflict).
+  let lineIndex = findSourceLineIndex(lines, operation.source);
+  if (lineIndex === -1 && operation.source.blockId) {
+    lineIndex = findTaskLineByBlockId(lines, operation.source.blockId);
+  }
   if (lineIndex === -1) {
     throw new DainvoWriteBackConflict("Task source changed before write-back.");
   }
 
-  const patchedLine = patchSourceTaskLine(lines[lineIndex] ?? "", operation);
-  const nextLines =
-    patchedLine === null
-      ? [...lines.slice(0, lineIndex), ...lines.slice(lineIndex + 1)]
-      : [
-          ...lines.slice(0, lineIndex),
-          patchedLine,
-          ...lines.slice(lineIndex + 1),
-        ];
+  if (operation.operationType === "delete") {
+    // A deleted parent takes its subtasks and indented notes with it, as a
+    // deleted Dainvo task takes its subtasks.
+    const end = findIndentedBlockEnd(lines, lineIndex);
+    const nextLines = [...lines.slice(0, lineIndex), ...lines.slice(end)];
+    return joinLines(nextLines, eol, hadFinalNewline);
+  }
 
-  return nextLines.join(eol) + (hadFinalNewline && nextLines.length ? eol : "");
+  const replacement =
+    toggleRecurringTask(lines[lineIndex] ?? "", operation, options) ?? [
+      patchSourceTaskLine(lines[lineIndex] ?? "", operation) ?? "",
+    ];
+  const nextLines = [
+    ...lines.slice(0, lineIndex),
+    ...replacement,
+    ...lines.slice(lineIndex + 1),
+  ];
+
+  return joinLines(nextLines, eol, hadFinalNewline);
 }
 
-const TASK_LINE_RE = /^\s*[-*+]\s+\[[ xX]\](?:\s+|$)/;
+/**
+ * Completing a `🔁` task goes through the Tasks plugin when it is installed,
+ * so the next occurrence follows the person's Tasks settings. The completed
+ * line keeps the task's block id; a copy of it on the new occurrence is
+ * removed, because the new line is a new task. Anything unexpected falls back
+ * to completing the line in place.
+ */
+function toggleRecurringTask(
+  line: string,
+  operation: PendingMutationOperation,
+  options: ContentOptions,
+): string[] | null {
+  const blockId = operation.source.blockId;
+  const parsed = parseTaskLine(line);
+  if (
+    operation.operationType !== "complete" ||
+    !options.toggleTaskDone ||
+    !blockId ||
+    !parsed ||
+    parsed.status !== "open" ||
+    !line.includes("🔁")
+  ) {
+    return null;
+  }
+  let toggled: string;
+  try {
+    toggled = options.toggleTaskDone(line, operation.source.notePath);
+  } catch {
+    return null;
+  }
+  if (typeof toggled !== "string") return null;
+  const blockPattern = new RegExp(
+    `(?:^|\\s)\\^${escapeRegExp(blockId)}\\s*$`,
+  );
+  const result = toggled.split(/\r?\n/).filter((value) => value.length > 0);
+  const completed = result.filter(
+    (value) => parseTaskLine(value)?.status === "completed",
+  );
+  if (
+    result.length === 0 ||
+    result.length > 2 ||
+    completed.length !== 1 ||
+    !blockPattern.test(completed[0] ?? "")
+  ) {
+    return null;
+  }
+  return result.map((value) =>
+    value === completed[0] ? value : value.replace(blockPattern, ""),
+  );
+}
+
+function findTaskLineByBlockId(
+  lines: readonly string[],
+  blockId: string,
+): number {
+  const pattern = new RegExp(`(?:^|\\s)\\^${escapeRegExp(blockId)}\\s*$`);
+  const matches = lines.flatMap((line, index) =>
+    pattern.test(line) && TASK_LINE_RE.test(line) ? [index] : [],
+  );
+  return matches.length === 1 ? (matches[0] ?? -1) : -1;
+}
+
+function findIndentedBlockEnd(lines: readonly string[], index: number): number {
+  const columns = countIndentColumns(lines[index] ?? "");
+  let end = index + 1;
+  for (let next = index + 1; next < lines.length; next += 1) {
+    const line = lines[next] ?? "";
+    if (!line.trim()) continue;
+    if (countIndentColumns(line) <= columns) break;
+    end = next + 1;
+  }
+  return end;
+}
+
+const TASK_LINE_RE = /^\s*[-*+]\s+\[[^\]\r\n]\](?:\s+|$)/;
 
 function applyHierarchyMoveToContent(
   content: string,

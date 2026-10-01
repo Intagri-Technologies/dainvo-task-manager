@@ -44,8 +44,20 @@
       "guard": "ambiguous"
     },
     {
-      "name": "unsupported checkbox state",
-      "content": "- [?] Ambiguous state",
+      "name": "custom checkbox state",
+      "content": "- [?] Question",
+      "expectedTaskCount": 1,
+      "guard": "blocked"
+    },
+    {
+      "name": "in-progress and cancelled states",
+      "content": "- [/] Drafting\n- [-] Dropped",
+      "expectedTaskCount": 2,
+      "guard": "blocked"
+    },
+    {
+      "name": "unsupported two-character state",
+      "content": "- [ab] Ambiguous state",
       "expectedTaskCount": 0,
       "guard": "ambiguous"
     }

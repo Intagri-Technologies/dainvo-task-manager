@@ -11,7 +11,7 @@ import { editorLivePreviewField } from "obsidian";
 
 const DAINVO_TASK_BLOCK_ID_RE =
   /\s+\^(?:dainvo|d)-[A-Za-z0-9-]+\s*$/;
-const TASK_PREFIX_RE = /^\s*[-*+]\s+\[[ xX]\]\s+/;
+const TASK_PREFIX_RE = /^\s*[-*+]\s+\[[^\]\r\n]\]\s+/;
 
 export type StableIdLineRange = {
   from: number;

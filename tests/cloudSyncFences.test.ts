@@ -249,7 +249,7 @@ describe("the pending-operation publisher fence", () => {
         resolved: 1,
         skipped: 0,
         results: [
-          { operation_id: "operation-1", outcome: "resolved", status: "rejected" },
+          { operation_id: "operation-1", outcome: "resolved", status: "applied" },
         ],
       });
     const coordinator = new ObsidianCloudSyncCoordinator(
@@ -296,7 +296,8 @@ describe("the pending-operation publisher fence", () => {
     expect(resolveOperations).toHaveBeenCalledWith({
       ...fence,
       resolutions: [
-        { operation_id: "operation-1", status: "rejected", result: { reason: "task_missing" } },
+        // Deleted in the vault means deleted: the phone's change is done.
+        { operation_id: "operation-1", status: "applied", result: { reason: "task_already_absent" } },
       ],
     });
     expect(Object.keys(settings.cloudOperationJournal)).toEqual(["operation-1"]);

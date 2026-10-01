@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Changed
+
+- Changes from Dainvo mobile are written before the vault is published, and
+  the vault is published once after them. The last edit wins: a phone change
+  is written unless the vault changed the same task's status after the phone
+  did (the note's modified time is the vault's edit time). No change is
+  reported back as a conflict.
+- Writes from Dainvo change only the checkbox, the completion date and the
+  fields Dainvo changed. Tags (including Unicode tags such as `#café`),
+  Dataview dates (`[due:: ]`, `[completion:: ]`), metadata order and the
+  status character stay as they are.
+- Completing a `🔁` task uses the Tasks plugin (7.2.0 or later) when it is
+  installed, so the next occurrence follows your Tasks settings. Without
+  Tasks, the task is completed in place.
+- `[/]` (in progress) is read as open and `[-]` (cancelled) as done; any
+  other single status character is a task too.
+- Deleting a task from Dainvo also removes its subtasks and indented notes.
+- Vaults paired only with Dainvo desktop also get stable task markers.
+- The local bridge sends the vault as it is on every attempt; a retry never
+  resends an older inventory.
+
+### Fixed
+
+- `✅` dates use your local day instead of the UTC day.
+- A failed desktop write no longer leaves an entry that made every retry look
+  like an uncertain earlier write.
+
 ## 1.6.0 - Unreleased
 
 Requires the Dainvo backend with the Obsidian publisher fence

@@ -61,7 +61,7 @@ describe("applyOperationToContent", () => {
     expect(content).toBe("User moved the task to another note.\n");
   });
 
-  it("updates title, tags, due date, priority, and preserves block id", () => {
+  it("updates only the changed title, tags, due date and priority in place", () => {
     const content = "- [ ] Old title #old 📅 2026-06-01 ^abc\n";
     const operation = makeOperation(content, {
       operationType: "update",
@@ -74,7 +74,7 @@ describe("applyOperationToContent", () => {
     });
 
     expect(applyOperationToContent(content, operation)).toBe(
-      "- [ ] New title ⏫ 📅 2026-06-15 #next #work ^abc\n",
+      "- [ ] New title 📅 2026-06-15 ⏫ #next #work ^abc\n",
     );
   });
 
@@ -92,7 +92,7 @@ describe("applyOperationToContent", () => {
     });
 
     expect(applyOperationToContent(content, operation)).toBe(
-      "- [ ] New title 🔼 📅 2026-06-15 🔁 every week ⏳ 2026-06-09 🛫 2026-06-08 ➕ 2026-06-01 [context:: launch] #next ^meta\n",
+      "- [ ] New title 🔁 every week ⏳ 2026-06-09 🛫 2026-06-08 ➕ 2026-06-01 [context:: launch] 📅 2026-06-15 🔼 #next ^meta\n",
     );
   });
 
@@ -109,7 +109,7 @@ describe("applyOperationToContent", () => {
     });
 
     expect(applyOperationToContent(content, operation)).toBe(
-      "- [ ] Renamed low task ⏳ 2026-06-09 🔽 [context:: launch] #next ^low\n",
+      "- [ ] Renamed low task ⏳ 2026-06-09 [context:: launch] 🔽 #next ^low\n",
     );
   });
 
@@ -474,16 +474,136 @@ describe("applyOperationToContent", () => {
     );
   });
 
-  it("throws a conflict when the expected line changed", () => {
+  it("finds a line edited in the vault by its block id and applies only our change", () => {
     const operation = makeOperation("- [ ] Original task ^x", {
       blockId: "x",
+      operationType: "complete",
+    });
+
+    expect(
+      applyOperationToContent(
+        "- [ ] User edited task #home ^x",
+        operation,
+        {},
+      ),
+    ).toMatch(/^- \[x\] User edited task #home ✅ \d{4}-\d{2}-\d{2} \^x$/);
+  });
+
+  it("still refuses a line-id task whose line changed", () => {
+    const operation = makeOperation("- [ ] Original task", {
       operationType: "update",
       task: { title: "Patched task" },
     });
 
     expect(() =>
-      applyOperationToContent("- [ ] User edited task ^x", operation),
+      applyOperationToContent("- [ ] User edited task", operation),
     ).toThrow(DainvoWriteBackConflict);
+  });
+
+  it("keeps tags, Dataview dates and Unicode tags when completing and reopening", () => {
+    const line =
+      "- [ ] Café run #café #home/errands [due:: 2026-10-01] 🔁 every week ^cafe";
+    const completed = applyOperationToContent(
+      line,
+      makeOperation(line, { operationType: "complete", blockId: "cafe" }),
+    );
+    expect(completed).toMatch(
+      /^- \[x\] Café run #café #home\/errands \[due:: 2026-10-01\] 🔁 every week ✅ \d{4}-\d{2}-\d{2} \^cafe$/,
+    );
+    const reopened = applyOperationToContent(
+      completed,
+      makeOperation(completed, { operationType: "reopen", blockId: "cafe" }),
+    );
+    expect(reopened).toBe(line);
+
+    const dataview = "- [ ] Pay rent [due:: 2026-10-01] ^rent";
+    expect(
+      applyOperationToContent(
+        dataview,
+        makeOperation(dataview, { operationType: "complete", blockId: "rent" }),
+      ),
+    ).toMatch(/^- \[x\] Pay rent \[due:: 2026-10-01\] \[completion:: \d{4}-\d{2}-\d{2}\] \^rent$/);
+    expect(
+      applyOperationToContent(
+        dataview,
+        makeOperation(dataview, {
+          operationType: "update",
+          blockId: "rent",
+          task: { dueAt: "2026-10-05T00:00:00.000Z" },
+        }),
+      ),
+    ).toBe("- [ ] Pay rent [due:: 2026-10-05] ^rent");
+  });
+
+  it("keeps the status character unless the status changes", () => {
+    const inProgress = "- [/] Draft ^draft";
+    expect(
+      applyOperationToContent(
+        inProgress,
+        makeOperation(inProgress, {
+          operationType: "update",
+          blockId: "draft",
+          task: { title: "Draft v2" },
+        }),
+      ),
+    ).toBe("- [/] Draft v2 ^draft");
+    const cancelled = "- [-] Dropped ^dropped";
+    expect(
+      applyOperationToContent(
+        cancelled,
+        makeOperation(cancelled, { operationType: "complete", blockId: "dropped" }),
+      ),
+    ).toBe(cancelled);
+    expect(
+      applyOperationToContent(
+        cancelled,
+        makeOperation(cancelled, { operationType: "reopen", blockId: "dropped" }),
+      ),
+    ).toBe("- [ ] Dropped ^dropped");
+  });
+
+  it("deletes a parent together with its subtasks and notes", () => {
+    const content = [
+      "- [ ] Parent ^parent",
+      "\t- [ ] Child ^child",
+      "\t\t- [x] Grandchild ^grandchild",
+      "\t  a note",
+      "",
+      "- [ ] Next ^next",
+    ].join("\n");
+    expect(
+      applyOperationToContent(
+        content,
+        makeOperation(content, { operationType: "delete", blockId: "parent" }),
+      ),
+    ).toBe("\n- [ ] Next ^next");
+  });
+
+  it("completes a recurring task through the Tasks plugin and keeps the id on the done line", () => {
+    const line = "- [ ] Water plants 🔁 every week 📅 2026-10-01 ^plants";
+    const toggleTaskDone = vi.fn(
+      () =>
+        "- [ ] Water plants 🔁 every week 📅 2026-10-08 ^plants\n- [x] Water plants 🔁 every week 📅 2026-10-01 ✅ 2026-09-30 ^plants",
+    );
+    const result = applyOperationToContent(
+      `${line}\n`,
+      makeOperation(line, { operationType: "complete", blockId: "plants" }),
+      { toggleTaskDone },
+    );
+    expect(toggleTaskDone).toHaveBeenCalledWith(line, "Tasks.md");
+    expect(result).toBe(
+      "- [ ] Water plants 🔁 every week 📅 2026-10-08\n- [x] Water plants 🔁 every week 📅 2026-10-01 ✅ 2026-09-30 ^plants\n",
+    );
+  });
+
+  it("completes a recurring task in place when the Tasks answer is unexpected", () => {
+    const line = "- [ ] Water plants 🔁 every week ^plants";
+    const result = applyOperationToContent(
+      line,
+      makeOperation(line, { operationType: "complete", blockId: "plants" }),
+      { toggleTaskDone: () => "not a task" },
+    );
+    expect(result).toMatch(/^- \[x\] Water plants 🔁 every week ✅ \d{4}-\d{2}-\d{2} \^plants$/);
   });
 });
 
