@@ -6,7 +6,6 @@ import {
   SettingGroup,
   type ButtonComponent,
   type SettingDefinitionItem,
-  type SettingDefinitionPage,
 } from "obsidian";
 
 import type DainvoTaskManagerPlugin from "./main";
@@ -19,8 +18,6 @@ import {
 import type { CloudPublisherVault, StableIdMode } from "./types";
 
 export class DainvoTaskManagerSettingTab extends PluginSettingTab {
-  private legacyPageNames: string[] = [];
-
   constructor(private readonly plugin: DainvoTaskManagerPlugin) {
     super(plugin.app, plugin);
   }
@@ -74,28 +71,13 @@ export class DainvoTaskManagerSettingTab extends PluginSettingTab {
   }
 
   display(): void {
-    this.legacyPageNames = [];
     this.renderLegacyDefinitions();
   }
 
   private renderLegacyDefinitions(): void {
     const { containerEl } = this;
     containerEl.empty();
-    const definitions = this.getSettingDefinitions();
-    const page = findSettingsPage(definitions, this.legacyPageNames.at(-1) ?? null);
-    if (page) {
-      new Setting(containerEl)
-        .setName(page.name)
-        .setHeading()
-        .addButton((button) => button.setButtonText("Back").onClick(() => {
-          this.legacyPageNames.pop();
-          this.renderLegacyDefinitions();
-        }));
-    }
-    renderSettingGroups(containerEl, page?.items ?? definitions, (name) => {
-      this.legacyPageNames.push(name);
-      this.renderLegacyDefinitions();
-    });
+    renderSettingGroups(containerEl, this.getSettingDefinitions());
   }
 
   private async enableCloudSyncWithConfirmation(): Promise<void> {
@@ -188,7 +170,6 @@ class SettingsOptionsModal extends Modal {
 function renderSettingGroups(
   containerEl: HTMLElement,
   definitions: SettingDefinitionItem[],
-  onOpenPage?: (name: string) => void,
 ): void {
   for (const definition of definitions) {
     if (
@@ -206,35 +187,12 @@ function renderSettingGroups(
       if (!isDefinitionVisible(item)) {
         continue;
       }
-      if ("type" in item && item.type === "page") {
-        const setting = new Setting(group.listEl).setName(item.name);
-        if (item.desc) setting.setDesc(item.desc);
-        setting.addButton((button) => button.setButtonText("Open").onClick(() => {
-          onOpenPage?.(item.name);
-        }));
-        continue;
-      }
       if (!("render" in item) || !item.render) continue;
       const setting = new Setting(group.listEl).setName(item.name);
       if (item.desc) {
         setting.setDesc(item.desc);
       }
       item.render(setting, group);
-    }
-  }
-}
-
-function findSettingsPage(
-  definitions: SettingDefinitionItem[],
-  name: string | null,
-): SettingDefinitionPage | undefined {
-  if (!name) return undefined;
-  for (const definition of definitions) {
-    if (!("type" in definition) || !isDefinitionVisible(definition)) continue;
-    if (definition.type === "page" && definition.name === name) return definition;
-    if (definition.items) {
-      const page = findSettingsPage(definition.items, name);
-      if (page) return page;
     }
   }
 }

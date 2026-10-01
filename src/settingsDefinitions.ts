@@ -52,39 +52,16 @@ export function buildDainvoSettingDefinitions(
             }));
           }
           setting.addButton((button) => button
-            .setButtonText(paired ? "Options" : "Connect")
+            .setButtonText("Pairing")
             .onClick(actions.openDesktopPairing));
         }, { visible: () => Platform.isDesktopApp, aliases: ["bridge", "Dainvo bridge URL", "pairing code", "desktop sync", "disconnect"] }),
         buildMobileSyncRow(plugin, actions),
       ],
     },
-    {
-      type: "group",
-      heading: "Preferences",
-      items: [
-        {
-          type: "page",
-          name: "General",
-          desc: "Choose how task markers are added to this vault.",
-          items: [buildGeneralDefinitions(plugin, actions)],
-        },
-        {
-          type: "page",
-          name: "Notes",
-          desc: "Daily Notes, event and meeting notes, and project folders for Dainvo desktop.",
-          visible: () => Platform.isDesktopApp,
-          items: [{
-            type: "group",
-            heading: "Notes created by Dainvo desktop",
-            items: [
-              { type: "page", name: "Daily Notes", desc: "Create tasks in your daily note and choose the section.", items: [buildDailyNoteDefinitions(plugin, actions)] },
-              { type: "page", name: "Event, meeting and bucket notes", desc: "Choose folders, filenames and initial note content.", items: [buildItemNoteDefinitions(plugin, actions)] },
-              { type: "page", name: "Project notes", desc: "Choose the folder for project notes.", items: [buildProjectNoteDefinitions(plugin, actions)] },
-            ],
-          }],
-        },
-      ],
-    },
+    buildGeneralDefinitions(plugin, actions),
+    buildDailyNoteDefinitions(plugin, actions),
+    buildItemNoteDefinitions(plugin, actions),
+    buildProjectNoteDefinitions(plugin, actions),
   ];
 }
 

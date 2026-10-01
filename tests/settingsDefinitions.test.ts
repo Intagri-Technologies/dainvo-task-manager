@@ -28,7 +28,7 @@ describe("Dainvo settings definitions", () => {
     Platform.isDesktopApp = true;
   });
 
-  it("keeps setting names and aliases across the main menu, pages and options", () => {
+  it("keeps setting names and aliases across the main sections and connection dialogs", () => {
     const definitions = buildDefinitions(true);
     const rows = flattenRows(definitions);
 

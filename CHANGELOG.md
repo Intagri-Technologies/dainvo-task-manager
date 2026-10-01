@@ -6,10 +6,11 @@
 
 - Put the Dainvo account, desktop pairing and mobile sync at the top, with
   account details and sync status beside their controls.
-- Move bridge URL and pairing codes into Desktop pairing options, and keep
+- Move bridge URL and pairing codes into the Pairing dialog, and keep
   mobile recovery and cloud deletion in Mobile sync options.
-- Group general settings and note preferences into separate pages. Hide
-  custom Daily Notes fields and dedicated note-folder options until selected.
+- Give general settings, Daily Notes, event/meeting/bucket notes and project
+  notes their own sections on the main page. Show custom Daily Notes fields
+  and dedicated note-folder options when selected.
 - Display sync times in local time and simplify connection status messages.
 
 ## 1.6.0 - 2026-10-01

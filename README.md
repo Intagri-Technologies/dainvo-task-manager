@@ -2,7 +2,7 @@
 
 ## Project notes
 
-On Obsidian desktop, **Settings → Dainvo Task Manager → Notes → Project notes**
+On Obsidian desktop, **Settings → Dainvo Task Manager → Project notes**
 selects the vault-relative Projects directory used by a locally paired Dainvo
 desktop app. The folder defaults to `Projects` and is created lazily when the
 first Project note is added. Project note files and Markdown content stay in
@@ -42,11 +42,12 @@ is optional.
 5. Select **Enable** beside **Mobile sync** and wait for **Up to date**.
 
 The main settings page keeps your account, desktop pairing and mobile sync
-together, with each status beside its controls. **Desktop pairing > Options**
+together, with each status beside its controls. The **Pairing** button beside **Desktop pairing**
 opens the bridge URL, pairing code and disconnect controls. **Mobile sync >
 Options** opens sync help, recovery actions and **Disable and delete**.
-**Notes** groups Daily Notes, event/meeting/bucket notes and project-note folders
-into separate pages. Desktop pairing and note options appear only on desktop.
+General, Daily Notes, event/meeting/bucket notes and project-note folders have
+their own sections on the main page. Desktop pairing and note settings appear
+only on desktop.
 
 One Obsidian vault can be connected to Dainvo mobile at a time. You can switch
 vaults from the plugin settings without deleting or changing the notes in the
@@ -169,7 +170,7 @@ rejects the note write and directs the action through its task tools and task
 permissions instead. The desktop and plugin run the same syntax fixtures so
 frontmatter and fenced-code examples are not mistaken for tasks.
 
-The **Notes > Event, meeting and bucket notes** settings control whether event, video-meeting,
+The **Event, meeting and bucket notes** settings control whether event, video-meeting,
 and bucket notes are placed beside Daily Notes or in a dedicated vault folder.
 Dedicated placement can add year, month, and optional day directories. You can
 also include timed-item start times in filenames and choose whether new files
