@@ -19,6 +19,12 @@ const HEARTBEAT_MS = 30_000;
 const PONG_TIMEOUT_MS = 10_000;
 const HELLO_TIMEOUT_MS = 15_000;
 const TOKEN_REFRESH_LEAD_MS = 2 * 60_000;
+/**
+ * A connection that was working ended for no stated reason (a hub deploy
+ * restarts every object at once): the first reconnect is spread over this
+ * window so every device does not return within the same second.
+ */
+const FIRST_RECONNECT_JITTER_MS = 15_000;
 const HEARTBEAT = '{"t":"ping"}';
 const OBSIDIAN_LANES = new Set(["obsidian", "obsidian_operations"]);
 const UUID =
@@ -293,16 +299,17 @@ export class PluginSyncHub {
 
   private gone(socket: SyncHubSocket, code: number): void {
     if (socket !== this.socket) return;
+    const wasConnected = this.helloAnswered;
     this.drop();
     if (!this.running) return;
-    this.retry(this.closeDelay(code));
+    this.retry(this.closeDelay(code, wasConnected));
   }
 
   private retry(delayMs: number): void {
     if (this.running) this.schedule(delayMs);
   }
 
-  private closeDelay(code: number): number {
+  private closeDelay(code: number, wasConnected: boolean): number {
     switch (code) {
       case 4401: // Token expired or refused: the next ticket uses a fresh one.
         this.attempts = 0;
@@ -316,6 +323,11 @@ export class PluginSyncHub {
         this.attempts = 0;
         return Math.round(this.random() * 30_000);
       default:
+        if (wasConnected) {
+          // Later failures continue the usual backoff from its second step.
+          this.attempts = 1;
+          return Math.round(this.random() * FIRST_RECONNECT_JITTER_MS);
+        }
         return this.backoff();
     }
   }

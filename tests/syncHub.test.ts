@@ -79,6 +79,7 @@ function harness(
   options: {
     session?: SyncHubSession | null;
     ticket?: SyncHubTicketAnswer;
+    random?: number;
   } = {},
 ) {
   const clock = new Clock();
@@ -106,7 +107,7 @@ function harness(
     getDeviceId: () => DEVICE,
     appVersion: "plugin-1.7.0",
     onLanes: (changed, full) => lanes.push({ lanes: changed, full }),
-    random: () => 0.5,
+    random: () => options.random ?? 0.5,
     now: () => clock.now,
     setTimer: clock.set,
     clearTimer: clock.clear,
@@ -167,7 +168,8 @@ describe("plugin sync hub", () => {
     const first = await connect(h);
     heads(first);
     first.serverClose(1006);
-    await h.clock.advance(1_000);
+    // A working connection dropped: the first reconnect is spread over 15 s.
+    await h.clock.advance(7_500);
     const second = h.sockets.at(-1)!;
     expect(second).not.toBe(first);
     second.open();
@@ -182,6 +184,25 @@ describe("plugin sync hub", () => {
     second.receive({ t: "changed", epoch: OTHER_EPOCH, lanes: { obsidian: "1" } });
     expect(h.lanes.at(-1)).toEqual({ lanes: [], full: true });
     h.hub.stop();
+  });
+
+  it("spreads the first reconnect over 15 s when a working connection drops", async () => {
+    const top = harness({ random: 1 });
+    const socket = await connect(top);
+    heads(socket);
+    // A hub deploy: every object restarts and the socket closes abnormally.
+    socket.serverClose(1006);
+    await top.clock.advance(14_999);
+    expect(top.sockets).toHaveLength(1);
+    await top.clock.advance(1);
+    expect(top.sockets).toHaveLength(2);
+    // That attempt fails before hello: the usual backoff continues (2 s).
+    top.sockets.at(-1)!.serverClose(1006);
+    await top.clock.advance(1_999);
+    expect(top.sockets).toHaveLength(2);
+    await top.clock.advance(1);
+    expect(top.sockets).toHaveLength(3);
+    top.hub.stop();
   });
 
   it("keeps delivering for the grace period while reconnecting, then falls back", async () => {
