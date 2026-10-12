@@ -4,6 +4,7 @@ import {
   Notice,
   Platform,
   Plugin,
+  requestUrl,
   TFile,
   type Editor,
   type MarkdownFileInfo,
@@ -36,6 +37,12 @@ import { resolveProjectNoteSettings } from "./projectNoteSettings";
 import { DainvoOAuthClient } from "./oauthClient";
 import { getDainvoCloudConfig } from "./runtimeConfig";
 import { DainvoSecureStore } from "./secureStore";
+import {
+  PluginSyncHub,
+  SYNC_HUB_BACKSTOP_MS,
+  SYNC_HUB_ORIGIN,
+  SYNC_HUB_PROTOCOL,
+} from "./syncHub";
 import { DainvoTaskManagerSettingTab } from "./settings";
 import { buildSnapshotPayload } from "./snapshot";
 import { StableIdCoordinator } from "./stableIds";
@@ -60,6 +67,8 @@ const SNAPSHOT_DEBOUNCE_MS = 1_500;
 const SNAPSHOT_RETRY_MS = 30_000;
 const LOCAL_OPERATION_POLL_MS = 15_000;
 const CLOUD_SYNC_POLL_MS = 30_000;
+/** An `obsidian` hint this soon after a cloud turn is that turn's own echo. */
+const SYNC_HUB_ECHO_MS = 10_000;
 
 export default class DainvoTaskManagerPlugin extends Plugin {
   settings: DainvoPluginSettings = { ...DEFAULT_SETTINGS };
@@ -70,6 +79,8 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   private stableIds!: StableIdCoordinator;
   private snapshotTimer: number | null = null;
   private cloudSyncTimer: number | null = null;
+  private syncHub!: PluginSyncHub;
+  private lastCloudSyncAt = 0;
   private isSnapshotInFlight = false;
   private isOperationPollInFlight = false;
   private hasPendingSnapshotRetry = false;
@@ -113,6 +124,43 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       cloudClient,
       this.stableIds,
     );
+    this.syncHub = new PluginSyncHub({
+      getSession: () => this.oauthClient.getValidSession(),
+      requestTicket: async (accessToken) => {
+        const response = await requestUrl({
+          url: `${SYNC_HUB_ORIGIN}/v1/ticket`,
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          throw: false,
+        });
+        const body = (() => {
+          try {
+            return JSON.parse(response.text) as { ticket?: unknown };
+          } catch {
+            return {};
+          }
+        })();
+        const retryAfter = Number(response.headers["retry-after"]);
+        return {
+          status: response.status,
+          ticket: typeof body.ticket === "string" ? body.ticket : undefined,
+          retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+        };
+      },
+      openSocket: (url) => new WebSocket(url, SYNC_HUB_PROTOCOL),
+      getDeviceId: () => this.secureStore.getOrCreateDeviceId(),
+      appVersion: `plugin-${this.manifest.version}`,
+      onLanes: (lanes, full) => {
+        if (
+          full ||
+          lanes.includes("obsidian_operations") ||
+          (lanes.includes("obsidian") &&
+            Date.now() - this.lastCloudSyncAt >= SYNC_HUB_ECHO_MS)
+        ) {
+          this.scheduleCloudSync();
+        }
+      },
+    });
     this.registerEditorExtension(dainvoStableIdVisibilityExtension);
 
     await this.resolveDailyNoteSettings().catch(() => undefined);
@@ -146,6 +194,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       if (this.settings.cloudSyncEnabled) {
         this.scheduleCloudSync();
       }
+      this.reconcileSyncHub();
     });
 
     if (Platform.isDesktopApp) {
@@ -165,24 +214,33 @@ export default class DainvoTaskManagerPlugin extends Plugin {
 
     this.registerInterval(
       window.setInterval(() => {
+        // While the sync hub delivers hints, the timer is only a backstop.
+        if (
+          this.syncHub.isDelivering() &&
+          Date.now() - this.lastCloudSyncAt < SYNC_HUB_BACKSTOP_MS
+        ) {
+          return;
+        }
         if (
           this.settings.cloudSyncEnabled &&
           (Platform.isDesktopApp || document.visibilityState === "visible") &&
           (this.settings.cloudStatus !== "retryable_error" ||
             this.cloudCoordinator.shouldRetryNow())
         ) {
-          void this.cloudCoordinator.requestSync().catch(() => undefined);
+          void this.requestCloudSync().catch(() => undefined);
         }
       }, CLOUD_SYNC_POLL_MS),
     );
     this.registerDomEvent(document, "visibilitychange", () => {
       if (document.visibilityState === "visible") {
         this.scheduleCloudSync();
+        this.reconcileSyncHub();
       }
     });
   }
 
   onunload(): void {
+    this.syncHub?.stop();
     if (this.snapshotTimer !== null) {
       window.clearTimeout(this.snapshotTimer);
       this.snapshotTimer = null;
@@ -302,6 +360,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     this.settings.cloudStatus = this.settings.cloudSyncEnabled
       ? "paused_signed_out"
       : "disabled";
+    this.syncHub.stop();
     await Promise.all([signingOut, this.saveSettings()]);
   }
 
@@ -314,11 +373,27 @@ export default class DainvoTaskManagerPlugin extends Plugin {
       ? "publishing"
       : "paused_signed_out";
     await this.saveSettings();
+    this.reconcileSyncHub();
     return this.cloudCoordinator.requestSync({ replaceVaultId });
   }
 
   async disableCloudSync(): Promise<void> {
+    this.syncHub.stop();
     await this.cloudCoordinator.disableAndPurge();
+  }
+
+  /** The hub runs while mobile sync is on and this vault is signed in. */
+  private reconcileSyncHub(): void {
+    if (this.settings.cloudSyncEnabled && this.isCloudSignedIn()) {
+      this.syncHub.start();
+    } else {
+      this.syncHub.stop();
+    }
+  }
+
+  private requestCloudSync(): ReturnType<ObsidianCloudSyncCoordinator["requestSync"]> {
+    this.lastCloudSyncAt = Date.now();
+    return this.cloudCoordinator.requestSync();
   }
 
   async syncCloudNow(): Promise<void> {
@@ -401,7 +476,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     }
     this.cloudSyncTimer = window.setTimeout(() => {
       this.cloudSyncTimer = null;
-      void this.cloudCoordinator.requestSync().catch(() => undefined);
+      void this.requestCloudSync().catch(() => undefined);
     }, SNAPSHOT_DEBOUNCE_MS);
   }
 
@@ -636,6 +711,7 @@ export default class DainvoTaskManagerPlugin extends Plugin {
     }
     await this.saveSettings();
     new Notice(`Signed in to Dainvo as ${this.cloudSignedInAccountLabel()}.`);
+    this.reconcileSyncHub();
     if (this.settings.cloudSyncEnabled) {
       await this.cloudCoordinator.requestSync();
     }

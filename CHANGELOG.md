@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Mobile sync now listens on `wss://sync.dainvo.com` for change notices and
+  syncs when a phone queues a task change, instead of checking every 30
+  seconds. The 30-second check returns whenever that connection is
+  unavailable, and still runs every 6 hours as a safety check.
+
 ## 1.6.2 - 2026-10-01
 
 ### Fixed

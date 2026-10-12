@@ -143,6 +143,13 @@ The plugin can contact these destinations:
   authenticated task relay.
 - `https://users.dainvo.com/auth/obsidian-callback` to return from browser
   sign-in to Obsidian.
+- `https://sync.dainvo.com` and `wss://sync.dainvo.com` while mobile sync is on:
+  the plugin exchanges its sign-in token (sent in a header) for a one-time,
+  30-second connection ticket, then keeps one WebSocket open. It receives only
+  "something changed" notices for mobile sync, with no task content, so the
+  plugin syncs when a phone queues a change instead of checking every
+  30 seconds. If the connection is unavailable, the plugin keeps checking
+  every 30 seconds as before.
 - `https://dainvo.com/pricing` only when you select **View plans**.
 - The user-configured Dainvo desktop bridge, normally
   `http://127.0.0.1:58234` through `http://127.0.0.1:58238`.
