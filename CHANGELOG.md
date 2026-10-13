@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.7.0 - 2026-10-13
 
 ### Changed
 
@@ -8,6 +8,8 @@
   syncs when a phone queues a task change, instead of checking every 30
   seconds. The 30-second check returns whenever that connection is
   unavailable, and still runs every 6 hours as a safety check.
+- After a working connection to `sync.dainvo.com` drops, the first reconnect
+  waits a random 0 to 15 seconds, so many devices do not reconnect at once.
 
 ## 1.6.2 - 2026-10-01
 
