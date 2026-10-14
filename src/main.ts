@@ -37,6 +37,7 @@ import { resolveProjectNoteSettings } from "./projectNoteSettings";
 import { DainvoOAuthClient } from "./oauthClient";
 import { getDainvoCloudConfig } from "./runtimeConfig";
 import { DainvoSecureStore } from "./secureStore";
+import { timedCloudSyncDue } from "./cloudSyncTimer";
 import {
   PluginSyncHub,
   SYNC_HUB_BACKSTOP_MS,
@@ -214,10 +215,16 @@ export default class DainvoTaskManagerPlugin extends Plugin {
 
     this.registerInterval(
       window.setInterval(() => {
-        // While the sync hub delivers hints, the timer is only a backstop.
+        // While the sync hub delivers hints, the timer is only a backstop;
+        // a due retry after an error still runs (J3).
         if (
-          this.syncHub.isDelivering() &&
-          Date.now() - this.lastCloudSyncAt < SYNC_HUB_BACKSTOP_MS
+          !timedCloudSyncDue({
+            hubDelivering: this.syncHub.isDelivering(),
+            lastCompletedAt: this.lastCloudSyncAt,
+            now: Date.now(),
+            backstopMs: SYNC_HUB_BACKSTOP_MS,
+            retryableError: this.settings.cloudStatus === "retryable_error",
+          })
         ) {
           return;
         }
@@ -392,8 +399,18 @@ export default class DainvoTaskManagerPlugin extends Plugin {
   }
 
   private requestCloudSync(): ReturnType<ObsidianCloudSyncCoordinator["requestSync"]> {
-    this.lastCloudSyncAt = Date.now();
-    return this.cloudCoordinator.requestSync();
+    const run = this.cloudCoordinator.requestSync();
+    // Only a completed sync counts for the hub backstop and the echo filter;
+    // a failed attempt leaves its retry due (J3).
+    void run.then(
+      () => {
+        if (this.settings.cloudStatus !== "retryable_error") {
+          this.lastCloudSyncAt = Date.now();
+        }
+      },
+      () => undefined,
+    );
+    return run;
   }
 
   async syncCloudNow(): Promise<void> {

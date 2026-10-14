@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.1 - 2026-10-14
+
+### Fixed
+
+- A sync that failed with a temporary error is retried on its normal
+  schedule again. Since 1.7.0 the retry could wait up to six hours while
+  the `sync.dainvo.com` connection was healthy.
+
 ## 1.7.0 - 2026-10-13
 
 ### Changed
