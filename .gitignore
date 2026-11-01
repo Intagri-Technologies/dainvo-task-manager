@@ -5,3 +5,7 @@ coverage/
 dist/
 .obsidian/
 
+
+# Internal workspace agent skills; this repo is public.
+.claude/skills/
+.codex/skills/
